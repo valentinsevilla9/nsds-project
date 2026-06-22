@@ -1,16 +1,11 @@
-version: '3.8'
-
 services:
 
-  # ─────────────────────────────────────────
-  # KAFKA (KRaft mode, no Zookeeper needed)
-  # ─────────────────────────────────────────
   kafka:
-    image: apache/kafka:3.7.0
+    image: apache/kafka:latest
     container_name: nsds-kafka
     ports:
-      - "9092:9092"       # acceso desde el host (vuestro código Java)
-      - "9093:9093"       # acceso entre contenedores
+      - "9092:9092"
+      - "9093:9093"
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
@@ -21,7 +16,7 @@ services:
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-      KAFKA_LOG_RETENTION_HOURS: 168      # topics persisten 7 días
+      KAFKA_LOG_RETENTION_HOURS: 168
     volumes:
       - kafka-data:/var/lib/kafka/data
     healthcheck:
@@ -30,10 +25,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # ─────────────────────────────────────────
-  # KAFKA UI  →  http://localhost:8090
-  # Para ver topics, mensajes y consumer groups visualmente
-  # ─────────────────────────────────────────
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     container_name: nsds-kafka-ui
@@ -46,31 +37,22 @@ services:
       kafka:
         condition: service_healthy
 
-  # ─────────────────────────────────────────
-  # SPARK MASTER  →  http://localhost:8080
-  # ─────────────────────────────────────────
   spark-master:
-    image: bitnami/spark:3.5.1
+    image: apache/spark:3.5.1
     container_name: nsds-spark-master
-    environment:
-      SPARK_MODE: master
-      SPARK_MASTER_HOST: spark-master
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
     ports:
-      - "8080:8080"       # Spark Web UI
-      - "7077:7077"       # puerto para submit de jobs
+      - "8080:8080"
+      - "7077:7077"
     volumes:
-      - ./project1-smartgrid/component2-spark:/opt/spark-apps   # tus JARs aquí
+      - ./project1-smartgrid/component2-spark:/opt/spark-apps
 
-  # ─────────────────────────────────────────
-  # SPARK WORKER  (1 worker, ampliable)
-  # ─────────────────────────────────────────
   spark-worker:
-    image: bitnami/spark:3.5.1
+    image: apache/spark:3.5.1
     container_name: nsds-spark-worker
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
     environment:
-      SPARK_MODE: worker
-      SPARK_MASTER_URL: spark://spark-master:7077
-      SPARK_WORKER_MEMORY: 2G
+      SPARK_WORKER_MEMORY: 2g
       SPARK_WORKER_CORES: 2
     depends_on:
       - spark-master
