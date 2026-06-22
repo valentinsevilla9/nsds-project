@@ -1,0 +1,79 @@
+version: '3.8'
+
+services:
+
+  # ─────────────────────────────────────────
+  # KAFKA (KRaft mode, no Zookeeper needed)
+  # ─────────────────────────────────────────
+  kafka:
+    image: apache/kafka:3.7.0
+    container_name: nsds-kafka
+    ports:
+      - "9092:9092"       # acceso desde el host (vuestro código Java)
+      - "9093:9093"       # acceso entre contenedores
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 168      # topics persisten 7 días
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions.sh", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────
+  # KAFKA UI  →  http://localhost:8090
+  # Para ver topics, mensajes y consumer groups visualmente
+  # ─────────────────────────────────────────
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: nsds-kafka-ui
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: nsds-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  # ─────────────────────────────────────────
+  # SPARK MASTER  →  http://localhost:8080
+  # ─────────────────────────────────────────
+  spark-master:
+    image: bitnami/spark:3.5.1
+    container_name: nsds-spark-master
+    environment:
+      SPARK_MODE: master
+      SPARK_MASTER_HOST: spark-master
+    ports:
+      - "8080:8080"       # Spark Web UI
+      - "7077:7077"       # puerto para submit de jobs
+    volumes:
+      - ./project1-smartgrid/component2-spark:/opt/spark-apps   # tus JARs aquí
+
+  # ─────────────────────────────────────────
+  # SPARK WORKER  (1 worker, ampliable)
+  # ─────────────────────────────────────────
+  spark-worker:
+    image: bitnami/spark:3.5.1
+    container_name: nsds-spark-worker
+    environment:
+      SPARK_MODE: worker
+      SPARK_MASTER_URL: spark://spark-master:7077
+      SPARK_WORKER_MEMORY: 2G
+      SPARK_WORKER_CORES: 2
+    depends_on:
+      - spark-master
+
+volumes:
+  kafka-data:

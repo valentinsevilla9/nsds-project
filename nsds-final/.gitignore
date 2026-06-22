@@ -1,0 +1,33 @@
+# Maven
+target/
+*.class
+*.jar
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# VS Code
+.vscode/
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Docker volumes (datos locales)
+kafka-data/
+
+# Node-RED local data
+.node-red/
+
+# Contiki-NG build artifacts
+*.o
+*.elf
+*.hex
+*.map
+contiki-ng/build/
