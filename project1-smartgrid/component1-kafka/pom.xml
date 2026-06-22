@@ -1,24 +1,22 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project>
     <modelVersion>4.0.0</modelVersion>
-    <groupId>it.polimi.nsds.smartgrid</groupId>
+    <groupId>smartgrid</groupId>
     <artifactId>component1-kafka</artifactId>
     <version>1.0</version>
     <name>Smart Grid - Kafka Microservices</name>
 
     <properties>
-        <maven.compiler.release>17</maven.compiler.release>
+        <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
     <dependencies>
-        <!-- Kafka client (misma versión que los labs del curso) -->
         <dependency>
             <groupId>org.apache.kafka</groupId>
             <artifactId>kafka-clients</artifactId>
             <version>4.1.0</version>
         </dependency>
-        <!-- JSON para serializar eventos -->
         <dependency>
             <groupId>com.google.code.gson</groupId>
             <artifactId>gson</artifactId>
@@ -28,7 +26,6 @@
 
     <build>
         <plugins>
-            <!-- Genera un JAR ejecutable con todas las dependencias -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-assembly-plugin</artifactId>

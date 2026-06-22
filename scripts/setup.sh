@@ -47,20 +47,6 @@ else
     echo "    Ubuntu: sudo apt install maven"
 fi
 
-# ── Docker ───────────────────────────────────────────────────
-echo ""
-echo "[ Docker ]"
-if check docker; then
-    docker --version
-    if docker info &> /dev/null; then
-        echo -e "${GREEN}  Docker daemon corriendo${NC}"
-    else
-        echo -e "${RED}  Docker daemon NO está corriendo. Arranca Docker Desktop.${NC}"
-    fi
-else
-    echo -e "${YELLOW}  → Instala Docker Desktop: https://www.docker.com/products/docker-desktop/${NC}"
-fi
-
 # ── Git ──────────────────────────────────────────────────────
 echo ""
 echo "[ Git ]"
