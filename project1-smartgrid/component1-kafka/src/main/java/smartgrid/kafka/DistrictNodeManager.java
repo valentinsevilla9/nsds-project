@@ -48,7 +48,8 @@ public class DistrictNodeManager {
     private void recoverState() {
         System.out.println("[DistrictNodeManager] Recuperando estado...");
         recoverFromTopic(USER_EVENTS_TOPIC, record -> {
-            Map event = gson.fromJson(record.value(), Map.class);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> event = gson.fromJson(record.value(), Map.class);
             String eventType = (String) event.get("type");
             String userId = (String) event.get("userId");
             if ("UserRegistered".equals(eventType) || "UserUpdated".equals(eventType))

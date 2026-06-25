@@ -1,0 +1,207 @@
+[
+    {
+        "id": "flow-digital-twin",
+        "type": "tab",
+        "label": "Digital Twin Coordination",
+        "disabled": false,
+        "info": "Coordinates between Contiki-NG IoT nodes (via MQTT) and Akka actors (via HTTP)"
+    },
+    {
+        "id": "mqtt-broker-vm",
+        "type": "mqtt-broker",
+        "name": "VM Mosquitto",
+        "broker": "localhost",
+        "port": "1883",
+        "clientid": "",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": 4,
+        "keepalive": "60",
+        "cleansession": true
+    },
+    {
+        "id": "mqtt-parent-change",
+        "type": "mqtt in",
+        "z": "flow-digital-twin",
+        "name": "IoT Parent Change",
+        "topic": "iot/+/parent",
+        "qos": "0",
+        "broker": "mqtt-broker-vm",
+        "x": 160,
+        "y": 100,
+        "wires": [
+            [
+                "fn-parse-parent"
+            ]
+        ]
+    },
+    {
+        "id": "fn-parse-parent",
+        "type": "function",
+        "z": "flow-digital-twin",
+        "name": "Parse Parent Update",
+        "func": "// Topic: iot/<nodeId>/parent\n// Payload: <newParentId>\nvar parts = msg.topic.split('/');\nvar nodeId = parts[1];\nvar newParentId = msg.payload;\n\nmsg.payload = JSON.stringify({\n    nodeId: nodeId,\n    newParentId: newParentId\n});\nmsg.headers = {'Content-Type': 'application/json'};\nmsg.url = 'http://localhost:8080/parent-update';\nreturn msg;",
+        "outputs": 1,
+        "x": 380,
+        "y": 100,
+        "wires": [
+            [
+                "http-akka"
+            ]
+        ]
+    },
+    {
+        "id": "mqtt-app-msg",
+        "type": "mqtt in",
+        "z": "flow-digital-twin",
+        "name": "IoT App Message",
+        "topic": "iot/+/msg",
+        "qos": "0",
+        "broker": "mqtt-broker-vm",
+        "x": 160,
+        "y": 200,
+        "wires": [
+            [
+                "fn-parse-app-msg"
+            ]
+        ]
+    },
+    {
+        "id": "fn-parse-app-msg",
+        "type": "function",
+        "z": "flow-digital-twin",
+        "name": "Parse App Message",
+        "func": "// Topic: iot/<nodeId>/msg\n// Payload: <seqNum>\nvar parts = msg.topic.split('/');\nvar nodeId = parts[1];\n\nmsg.payload = JSON.stringify({\n    fromNodeId: nodeId,\n    seqNum: parseInt(msg.payload)\n});\nmsg.headers = {'Content-Type': 'application/json'};\nmsg.url = 'http://localhost:8080/app-msg';\nreturn msg;",
+        "outputs": 1,
+        "x": 380,
+        "y": 200,
+        "wires": [
+            [
+                "http-akka"
+            ]
+        ]
+    },
+    {
+        "id": "mqtt-crash",
+        "type": "mqtt in",
+        "z": "flow-digital-twin",
+        "name": "IoT Node Crash",
+        "topic": "iot/+/crash",
+        "qos": "0",
+        "broker": "mqtt-broker-vm",
+        "x": 160,
+        "y": 300,
+        "wires": [
+            [
+                "fn-parse-crash"
+            ]
+        ]
+    },
+    {
+        "id": "fn-parse-crash",
+        "type": "function",
+        "z": "flow-digital-twin",
+        "name": "Parse Crash",
+        "func": "// Topic: iot/<nodeId>/crash\nvar parts = msg.topic.split('/');\nvar nodeId = parts[1];\n\nmsg.payload = JSON.stringify({ nodeId: nodeId });\nmsg.headers = {'Content-Type': 'application/json'};\nmsg.url = 'http://localhost:8080/node-crash';\n\n// Also trigger recovery: restart node in Cooja via MQTT\nvar recoveryMsg = {\n    topic: 'iot/' + nodeId + '/restart',\n    payload: 'restart'\n};\nreturn [msg, recoveryMsg];",
+        "outputs": 2,
+        "x": 380,
+        "y": 300,
+        "wires": [
+            [
+                "http-akka"
+            ],
+            [
+                "mqtt-recovery"
+            ]
+        ]
+    },
+    {
+        "id": "http-akka",
+        "type": "http request",
+        "z": "flow-digital-twin",
+        "name": "Send to Akka",
+        "method": "POST",
+        "ret": "txt",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "x": 620,
+        "y": 200,
+        "wires": [
+            [
+                "debug-akka-response"
+            ]
+        ]
+    },
+    {
+        "id": "debug-akka-response",
+        "type": "debug",
+        "z": "flow-digital-twin",
+        "name": "Akka Response",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "complete": "payload",
+        "x": 820,
+        "y": 200,
+        "wires": []
+    },
+    {
+        "id": "mqtt-recovery",
+        "type": "mqtt out",
+        "z": "flow-digital-twin",
+        "name": "Recovery Command",
+        "topic": "",
+        "qos": "0",
+        "retain": false,
+        "broker": "mqtt-broker-vm",
+        "x": 620,
+        "y": 340,
+        "wires": []
+    },
+    {
+        "id": "inject-period-change",
+        "type": "inject",
+        "z": "flow-digital-twin",
+        "name": "Test: Change Period Node 2",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "{\"nodeId\":\"2\",\"periodMs\":8000}",
+        "payloadType": "json",
+        "x": 180,
+        "y": 460,
+        "wires": [
+            [
+                "fn-set-period"
+            ]
+        ]
+    },
+    {
+        "id": "fn-set-period",
+        "type": "function",
+        "z": "flow-digital-twin",
+        "name": "Set Period",
+        "func": "// Forward period change to Akka actor\nmsg.headers = {'Content-Type': 'application/json'};\nmsg.payload = JSON.stringify(msg.payload);\nmsg.url = 'http://localhost:8080/set-period';\n\n// Also send to IoT node via MQTT\nvar mqttMsg = {\n    topic: 'iot/' + msg.payload.nodeId + '/period',\n    payload: String(msg.payload.periodMs)\n};\nreturn [msg, mqttMsg];",
+        "outputs": 2,
+        "x": 420,
+        "y": 460,
+        "wires": [
+            [
+                "http-akka"
+            ],
+            [
+                "mqtt-recovery"
+            ]
+        ]
+    }
+]

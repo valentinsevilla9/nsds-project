@@ -47,7 +47,8 @@ public class PresentationService {
         System.out.println("[PresentationService] Recuperando estado...");
 
         recoverFromTopic(NODE_EVENTS_TOPIC, record -> {
-            Map event = gson.fromJson(record.value(), Map.class);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> event = gson.fromJson(record.value(), Map.class);
             String eventType = (String) event.get("type");
             String nodeId = (String) event.get("nodeId");
             switch (eventType) {
@@ -63,7 +64,8 @@ public class PresentationService {
         });
 
         recoverFromTopic(BILLING_TOPIC, record -> {
-            Map event = gson.fromJson(record.value(), Map.class);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> event = gson.fromJson(record.value(), Map.class);
             String nodeId = (String) event.get("nodeId");
             double energy = ((Number) event.get("totalEnergyKwh")).doubleValue();
             double cost = ((Number) event.get("cost")).doubleValue();

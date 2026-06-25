@@ -3,7 +3,6 @@ package smartgrid.spark;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
-import org.apache.spark.sql.streaming.StreamingQuery;
 import org.apache.spark.sql.streaming.StreamingQueryException;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructField;
@@ -95,7 +94,7 @@ public class EnergyAnalytics {
                 // Suma el balance energético acumulado por distrito.
                 // outputMode "update": solo muestra filas que cambian en cada micro-batch.
 
-                final StreamingQuery q1 = measurements
+                measurements
                                 .groupBy("districtId")
                                 .agg(
                                                 sum("value").as("totalBalance_kW"),
@@ -112,7 +111,7 @@ public class EnergyAnalytics {
                 // Balance promedio por distrito en ventana de 2 minutos, deslizando cada 30s.
                 // Watermark de 30s para tolerar eventos fuera de orden.
 
-                final StreamingQuery q2 = measurements
+                measurements
                                 .withWatermark("eventTime", WATERMARK_DELAY)
                                 .groupBy(
                                                 window(col("eventTime"), WINDOW_DURATION, SLIDE_DURATION),

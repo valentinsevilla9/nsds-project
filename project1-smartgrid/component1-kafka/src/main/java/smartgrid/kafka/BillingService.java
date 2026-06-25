@@ -145,7 +145,8 @@ public class BillingService {
     }
 
     private void processMeasurement(String json, KafkaProducer<String, String> producer) {
-        Map event = gson.fromJson(json, Map.class);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> event = gson.fromJson(json, Map.class);
         String nodeId = (String) event.get("nodeId");
         String nodeType = (String) event.get("nodeType");
         String districtId = (String) event.get("districtId");

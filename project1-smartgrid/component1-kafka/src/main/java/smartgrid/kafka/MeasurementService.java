@@ -95,7 +95,8 @@ public class MeasurementService {
     }
 
     private void applyNodeEvent(String json) {
-        Map event = gson.fromJson(json, Map.class);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> event = gson.fromJson(json, Map.class);
         String eventType = (String) event.get("type");
         String nodeId = (String) event.get("nodeId");
         switch (eventType) {

@@ -4,8 +4,7 @@ import akka.actor.AbstractActor;
 import akka.actor.ActorRef;
 import akka.actor.Props;
 
-import java.util.HashMap;
-import java.util.Map;
+
 
 /**
  * DistrictActor — agrega las mediciones de todos los nodos de un distrito.
