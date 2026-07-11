@@ -69,6 +69,7 @@ public class DigitalTwinMain {
         server.createContext("/app-msg", new AppMsgHandler());
         server.createContext("/set-period", new SetPeriodHandler());
         server.createContext("/node-crash", new NodeCrashHandler());
+        server.createContext("/node-recovered", new NodeRecoveredHandler());
         server.createContext("/status", new StatusHandler());
         server.start();
 
@@ -150,6 +151,24 @@ public class DigitalTwinMain {
                 ActorRef actor = nodeActors.get(nodeId);
                 if (actor != null) {
                     actor.tell(new NodeCrashMsg(nodeId), ActorRef.noSender());
+                    respond(exchange, 200, "OK");
+                } else {
+                    respond(exchange, 404, "Node not found: " + nodeId);
+                }
+            }
+        }
+    }
+
+    static class NodeRecoveredHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if ("POST".equals(exchange.getRequestMethod())) {
+                String body = readBody(exchange);
+                String nodeId = extractField(body, "nodeId");
+
+                ActorRef actor = nodeActors.get(nodeId);
+                if (actor != null) {
+                    actor.tell(new NodeRecoveredMsg(nodeId), ActorRef.noSender());
                     respond(exchange, 200, "OK");
                 } else {
                     respond(exchange, 404, "Node not found: " + nodeId);

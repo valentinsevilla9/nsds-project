@@ -2,6 +2,7 @@
 target/
 *.class
 *.jar
+dependency-reduced-pom.xml
 
 # IntelliJ IDEA
 .idea/
@@ -25,9 +26,16 @@ kafka-data/
 # Node-RED local data
 .node-red/
 
+# Node.js dependencies (serial-bridge)
+node_modules/
+
 # Contiki-NG build artifacts
 *.o
 *.elf
 *.hex
 *.map
 contiki-ng/build/
+
+# MPI build artifacts
+project1-smartgrid/component3-mpi/district_simulation
+project1-smartgrid/component3-mpi/district_simulation.exe

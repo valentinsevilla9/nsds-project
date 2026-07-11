@@ -47,6 +47,7 @@ public class IoTNodeActor extends AbstractActor {
                 .match(AppMsg.class, this::onAppMsg)
                 .match(SetPeriodMsg.class, this::onSetPeriod)
                 .match(NodeCrashMsg.class, this::onNodeCrash)
+                .match(NodeRecoveredMsg.class, this::onNodeRecovered)
                 .build();
     }
 
@@ -96,6 +97,17 @@ public class IoTNodeActor extends AbstractActor {
         this.crashed = true;
         // Node-RED detectará este estado y tomará acciones de recovery
         // en el lado Contiki-NG (reiniciar el nodo en Cooja)
+    }
+
+    /**
+     * Requisito d) (recovery): el nodo IoT ha vuelto a dar señales de vida.
+     * Esta es la "proper recovery action" que pide el enunciado dentro de
+     * la red de actores: sale del modo crashed y retoma el estado normal.
+     */
+    private void onNodeRecovered(NodeRecoveredMsg msg) {
+        System.out.println("NODE " + nodeId + ": RECOVERED — leaving recovery mode");
+        this.crashed = false;
+        printState();
     }
 
     private void printState() {

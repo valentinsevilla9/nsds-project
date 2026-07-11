@@ -28,6 +28,14 @@ public class BillingService {
     private final Map<String, String> nodeDistricts = new HashMap<>();
     private final Gson gson = new Gson();
 
+    // Necesarios para integrar energia con el tiempo real transcurrido entre
+    // mediciones (en vez de asumir 1 medicion = 1 minuto) y para no comitear
+    // nunca el offset de una medicion cuya ventana de facturacion sigue abierta.
+    private final Map<String, Long> lastMeasurementTimestamp = new HashMap<>();
+    private final Map<String, Long> windowStartTimestamp = new HashMap<>();
+    private final Map<String, Long> windowStartOffset = new HashMap<>();
+    private final Map<String, TopicPartition> nodePartition = new HashMap<>();
+
     public static class BillingRecord {
         public String type = "UsageRecordCreated";
         public String nodeId, nodeType, districtId;
@@ -129,24 +137,40 @@ public class BillingService {
                 ConsumerRecords<String, String> records =
                         consumer.poll(Duration.of(5, ChronoUnit.MINUTES));
                 for (ConsumerRecord<String, String> record : records) {
-                    processMeasurement(record.value(), producer);
+                    processMeasurement(record, producer);
                 }
                 if (!records.isEmpty()) {
-                    Map<TopicPartition, OffsetAndMetadata> offsets = new HashMap<>();
-                    for (TopicPartition partition : records.partitions()) {
-                        List<ConsumerRecord<String, String>> partRecords = records.records(partition);
-                        long lastOffset = partRecords.get(partRecords.size() - 1).offset();
-                        offsets.put(partition, new OffsetAndMetadata(lastOffset + 1));
-                    }
-                    consumer.commitSync(offsets);
+                    consumer.commitSync(safeCommitOffsets(records));
                 }
             }
         }
     }
 
-    private void processMeasurement(String json, KafkaProducer<String, String> producer) {
+    // Nunca comitea el offset de una medicion cuya ventana de facturacion
+    // sigue abierta (measurementCount > 0 sin haber emitido BillingRecord):
+    // si el proceso cae, Kafka la reentrega tal cual al reiniciar y el
+    // estado parcial se reconstruye solo, sin necesidad de recuperarlo a mano.
+    private Map<TopicPartition, OffsetAndMetadata> safeCommitOffsets(ConsumerRecords<String, String> records) {
+        Map<TopicPartition, Long> minPendingOffsetByPartition = new HashMap<>();
+        for (Map.Entry<String, Long> e : windowStartOffset.entrySet()) {
+            TopicPartition tp = nodePartition.get(e.getKey());
+            if (tp != null) minPendingOffsetByPartition.merge(tp, e.getValue(), Math::min);
+        }
+
+        Map<TopicPartition, OffsetAndMetadata> offsets = new HashMap<>();
+        for (TopicPartition tp : records.partitions()) {
+            List<ConsumerRecord<String, String>> partRecords = records.records(tp);
+            long lastOffsetInBatch = partRecords.get(partRecords.size() - 1).offset() + 1;
+            Long minPending = minPendingOffsetByPartition.get(tp);
+            long safeOffset = (minPending != null) ? Math.min(minPending, lastOffsetInBatch) : lastOffsetInBatch;
+            offsets.put(tp, new OffsetAndMetadata(safeOffset));
+        }
+        return offsets;
+    }
+
+    private void processMeasurement(ConsumerRecord<String, String> record, KafkaProducer<String, String> producer) {
         @SuppressWarnings("unchecked")
-        Map<String, Object> event = gson.fromJson(json, Map.class);
+        Map<String, Object> event = gson.fromJson(record.value(), Map.class);
         String nodeId = (String) event.get("nodeId");
         String nodeType = (String) event.get("nodeType");
         String districtId = (String) event.get("districtId");
@@ -155,14 +179,24 @@ public class BillingService {
 
         nodeTypes.put(nodeId, nodeType);
         nodeDistricts.put(nodeId, districtId);
+        nodePartition.put(nodeId, new TopicPartition(record.topic(), record.partition()));
 
-        double energyKwh = Math.abs(value) / 60.0;
-        accumulatedEnergy.merge(nodeId, energyKwh, Double::sum);
+        Long lastTs = lastMeasurementTimestamp.get(nodeId);
+        if (lastTs != null && timestamp > lastTs) {
+            double elapsedHours = (timestamp - lastTs) / 3_600_000.0;
+            accumulatedEnergy.merge(nodeId, Math.abs(value) * elapsedHours, Double::sum);
+        }
+        lastMeasurementTimestamp.put(nodeId, timestamp);
+
         int count = measurementCount.merge(nodeId, 1, Integer::sum);
+        if (count == 1) {
+            windowStartTimestamp.put(nodeId, timestamp);
+            windowStartOffset.put(nodeId, record.offset());
+        }
 
         System.out.println("[BillingService] Medicion procesada: nodo=" + nodeId
                 + " valor=" + String.format("%.2f", value) + " kW"
-                + " acumulado=" + String.format("%.4f", accumulatedEnergy.get(nodeId)) + " kWh"
+                + " acumulado=" + String.format("%.4f", accumulatedEnergy.getOrDefault(nodeId, 0.0)) + " kWh"
                 + " [" + count + "/" + BILLING_WINDOW_SIZE + "]");
 
         if (count >= BILLING_WINDOW_SIZE)
@@ -174,9 +208,10 @@ public class BillingService {
         double totalEnergy = accumulatedEnergy.getOrDefault(nodeId, 0.0);
         double cost = calculateCost(nodeType, totalEnergy);
         int count = measurementCount.getOrDefault(nodeId, 0);
+        long periodStart = windowStartTimestamp.getOrDefault(nodeId, periodEnd);
 
         BillingRecord record = new BillingRecord(nodeId, nodeType, districtId,
-                totalEnergy, cost, count, periodEnd - (count * 60000L), periodEnd);
+                totalEnergy, cost, count, periodStart, periodEnd);
 
         producer.send(new ProducerRecord<>(BILLING_TOPIC, nodeId, gson.toJson(record)), (m, ex) -> {
             if (ex != null) System.err.println("[BillingService] Error: " + ex.getMessage());
@@ -189,6 +224,8 @@ public class BillingService {
 
         accumulatedEnergy.put(nodeId, 0.0);
         measurementCount.put(nodeId, 0);
+        windowStartTimestamp.remove(nodeId);
+        windowStartOffset.remove(nodeId);
     }
 
     private double calculateCost(String nodeType, double energyKwh) {

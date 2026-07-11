@@ -116,6 +116,37 @@
         ]
     },
     {
+        "id": "mqtt-recovered",
+        "type": "mqtt in",
+        "z": "flow-digital-twin",
+        "name": "IoT Node Recovered",
+        "topic": "iot/+/recovered",
+        "qos": "0",
+        "broker": "mqtt-broker-vm",
+        "x": 160,
+        "y": 380,
+        "wires": [
+            [
+                "fn-parse-recovered"
+            ]
+        ]
+    },
+    {
+        "id": "fn-parse-recovered",
+        "type": "function",
+        "z": "flow-digital-twin",
+        "name": "Parse Recovered",
+        "func": "// Topic: iot/<nodeId>/recovered\n// Publicado por serial-bridge cuando el nodo vuelve a dar heartbeats\nvar parts = msg.topic.split('/');\nvar nodeId = parts[1];\n\nmsg.payload = JSON.stringify({ nodeId: nodeId });\nmsg.headers = {'Content-Type': 'application/json'};\nmsg.url = 'http://localhost:8080/node-recovered';\nreturn msg;",
+        "outputs": 1,
+        "x": 390,
+        "y": 380,
+        "wires": [
+            [
+                "http-akka"
+            ]
+        ]
+    },
+    {
         "id": "http-akka",
         "type": "http request",
         "z": "flow-digital-twin",

@@ -77,6 +77,17 @@ else
     echo "    Ubuntu: sudo apt install nodejs npm"
 fi
 
+# ── MPI (OpenMPI/MPICH) ───────────────────────────────────────
+echo ""
+echo "[ MPI ]"
+if check mpicc && check mpirun; then
+    mpirun --version | head -1
+else
+    echo -e "${YELLOW}  → Instala OpenMPI:${NC}"
+    echo "    macOS:  brew install open-mpi"
+    echo "    Ubuntu: sudo apt install openmpi-bin libopenmpi-dev"
+fi
+
 # ── Resumen final ────────────────────────────────────────────
 echo ""
 echo "================================================"

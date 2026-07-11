@@ -1,0 +1,13 @@
+{
+    "name": "digital-twin-serial-bridge",
+    "version": "1.0.0",
+    "private": true,
+    "description": "Puente entre el serial socket de los motes Cooja y el broker MQTT que consume el flujo Node-RED del Digital Twin",
+    "main": "bridge.js",
+    "scripts": {
+        "start": "node bridge.js"
+    },
+    "dependencies": {
+        "mqtt": "^5.10.0"
+    }
+}

@@ -1,8 +1,12 @@
 package smartgrid.spark;
 
+import org.apache.spark.api.java.function.MapFunction;
 import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Encoders;
+import org.apache.spark.sql.KeyValueGroupedDataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.streaming.GroupStateTimeout;
 import org.apache.spark.sql.streaming.StreamingQueryException;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructField;
@@ -21,8 +25,10 @@ import static org.apache.spark.sql.functions.*;
  * y realiza dos análisis en tiempo real:
  *
  * Query 1 — Agregación por distrito:
- * Mantiene el balance energético acumulado de cada distrito
- * (suma de valores de todos los nodos: positivo=producción, negativo=consumo)
+ * Mantiene, vía mapGroupsWithState, el estado de carga del acumulador de
+ * cada distrito (kWh), integrando el balance energético (kW) sobre el
+ * tiempo real transcurrido entre eventos y con clamp a >= 0 — mismo
+ * modelo físico que DistrictActor (Akka) y district_simulation.c (MPI).
  * Usa outputMode "update" para mostrar solo los distritos que cambian.
  *
  * Query 2 — Ventana temporal deslizante:
@@ -86,25 +92,34 @@ public class EnergyAnalytics {
                                                 col("data.nodeType"),
                                                 col("data.districtId"),
                                                 col("data.value"),
+                                                col("data.timestamp"),
                                                 // Convertir epoch millis a Timestamp para event-time windowing
                                                 (col("data.timestamp").divide(1000)).cast(DataTypes.TimestampType)
                                                                 .as("eventTime"));
 
-                // ── Query 1: Agregación por distrito ─────────────────────────────────
-                // Suma el balance energético acumulado por distrito.
-                // outputMode "update": solo muestra filas que cambian en cada micro-batch.
+                // ── Query 1: Agregación por distrito (state of charge) ──────────────
+                // mapGroupsWithState mantiene, por distrito, la carga acumulada del
+                // "acumulador virtual" del distrito a lo largo de toda la vida del
+                // stream (no solo del micro-batch actual).
+                // outputMode "update": solo muestra distritos que cambian en cada batch.
 
-                measurements
-                                .groupBy("districtId")
-                                .agg(
-                                                sum("value").as("totalBalance_kW"),
-                                                count("nodeId").as("numMeasurements"),
-                                                avg("value").as("avgValue_kW"))
+                final KeyValueGroupedDataset<String, MeasurementBean> byDistrict = measurements
+                                .select("nodeId", "nodeType", "districtId", "value", "timestamp")
+                                .as(Encoders.bean(MeasurementBean.class))
+                                .groupByKey((MapFunction<MeasurementBean, String>) MeasurementBean::getDistrictId,
+                                                Encoders.STRING());
+
+                byDistrict
+                                .mapGroupsWithState(
+                                                new DistrictChargeUpdater(),
+                                                Encoders.bean(DistrictChargeState.class),
+                                                Encoders.bean(DistrictChargeUpdate.class),
+                                                GroupStateTimeout.NoTimeout())
                                 .writeStream()
                                 .outputMode("update")
                                 .format("console")
                                 .option("truncate", false)
-                                .queryName("Q1_DistrictAggregation")
+                                .queryName("Q1_DistrictStateOfCharge")
                                 .start();
 
                 // ── Query 2: Ventana temporal deslizante ──────────────────────────────
