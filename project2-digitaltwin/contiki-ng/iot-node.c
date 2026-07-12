@@ -1,6 +1,11 @@
 /*
- * iot-node.c — Nodo IoT para el Digital Twin (Proyecto #2)
- * Versión corregida: usa solo APIs públicas de Contiki-NG
+ * iot-node.c — firmware del nodo IoT para el Digital Twin
+ *
+ * Este nodo manda trafico UDP al root cada cierto tiempo, avisa por serie si cambia
+ * de padre en el arbol RPL, y escucha un comando por UDP para cambiar su propio periodo 
+ * de envio. No sabe nada de Akka ni de Node-RED.
+ *
+ * Usa solo APIs publicas de Contiki-NG
  */
 
 #include "contiki.h"
@@ -10,6 +15,7 @@
 #include "net/ipv6/simple-udp.h"
 #include "net/ipv6/uip-ds6-route.h"
 #include "sys/log.h"
+#include <string.h>
 
 #define LOG_MODULE "App"
 #define LOG_LEVEL LOG_LEVEL_INFO
@@ -28,8 +34,9 @@ PROCESS(iot_node_process, "IoT Node Digital Twin");
 AUTOSTART_PROCESSES(&iot_node_process);
 
 /*
- * Detecta cambio de ruta al root y lo reporta por serie.
- * Usamos get_root_ipaddr que es API pública.
+ * Contiki-NG no avisa con un evento cuando cambia el padre RPL, asi que
+ * lo comprobamos a mano en cada paso del bucle: nos guardamos la ultima
+ * IP del root que vimos y comparamos.
  */
 static void
 check_parent_change(void)
@@ -47,8 +54,9 @@ check_parent_change(void)
 }
 
 /*
- * Callback UDP: recibe comandos del root.
- * Formato: "PERIOD:<segundos>"
+ * Aqui llega lo que nos manden por UDP. Solo entendemos un comando,
+ * "PERIOD:<segundos>", que es como Node-RED (via el bridge) nos cambia
+ * el periodo de envio sin tener que reflashear el nodo.
  */
 static void
 udp_rx_callback(struct simple_udp_connection *c,
@@ -59,9 +67,7 @@ udp_rx_callback(struct simple_udp_connection *c,
                 const uint8_t *data,
                 uint16_t datalen)
 {
-  if(datalen > 7 && data[0] == 'P' && data[1] == 'E' &&
-     data[2] == 'R' && data[3] == 'I' && data[4] == 'O' &&
-     data[5] == 'D' && data[6] == ':') {
+  if(datalen > 7 && memcmp(data, "PERIOD:", 7) == 0) {
     unsigned new_period_s = 0;
     unsigned i;
     for(i = 7; i < datalen && data[i] >= '0' && data[i] <= '9'; i++) {

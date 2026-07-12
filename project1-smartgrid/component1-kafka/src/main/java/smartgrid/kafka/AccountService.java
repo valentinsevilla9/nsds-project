@@ -12,7 +12,9 @@ import java.util.Map;
 // y se reconstruye leyendo el topic "user-events" cada vez que arranca.
 public class AccountService {
 
-    private static final String SERVER_ADDR = "localhost:9092";
+    // por defecto localhost, pero se puede apuntar a otra máquina sin
+    // recompilar poniendo la variable de entorno KAFKA_BROKER
+    private static final String SERVER_ADDR = System.getenv().getOrDefault("KAFKA_BROKER", "localhost:9092");
     private static final String USER_EVENTS_TOPIC = "user-events";
 
     private final Map<String, User> users = new HashMap<>();

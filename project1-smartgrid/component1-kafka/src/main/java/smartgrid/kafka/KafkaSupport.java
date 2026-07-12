@@ -73,9 +73,7 @@ public class KafkaSupport {
     }
 
     // Producer con la config que usan los 4 servicios que publican algo:
-    // acks=all para no perder nada (el enunciado asume que Kafka no pierde
-    // topics, pero al menos que no perdamos nosotros el mensaje al enviarlo),
-    // y todo como String porque los eventos van serializados en JSON.
+    // acks=all para no perder nada y todo como String porque los eventos van serializados en JSON.
     public static KafkaProducer<String, String> createProducer(String server) {
         Properties props = new Properties();
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, server);

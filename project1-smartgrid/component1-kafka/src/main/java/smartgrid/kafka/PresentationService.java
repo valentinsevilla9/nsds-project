@@ -16,7 +16,7 @@ import java.util.TreeMap;
 // 2) Un resumen por distrito.
 public class PresentationService {
 
-    private static final String SERVER_ADDR = "localhost:9092";
+    private static final String SERVER_ADDR = System.getenv().getOrDefault("KAFKA_BROKER", "localhost:9092");
     private static final String NODE_EVENTS_TOPIC = "node-events";
     private static final String BILLING_TOPIC = "billing-records";
 

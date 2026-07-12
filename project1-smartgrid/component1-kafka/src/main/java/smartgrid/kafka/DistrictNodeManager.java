@@ -21,7 +21,7 @@ import java.util.Set;
 // vez de depender de que el otro servicio este vivo para preguntarselo.
 public class DistrictNodeManager {
 
-    private static final String SERVER_ADDR = "localhost:9092";
+    private static final String SERVER_ADDR = System.getenv().getOrDefault("KAFKA_BROKER", "localhost:9092");
     private static final String USER_EVENTS_TOPIC = "user-events";
     private static final String NODE_EVENTS_TOPIC = "node-events";
 

@@ -12,7 +12,7 @@
 
 | Project | Technologies | Status |
 |---|---|---|
-| #1 Smart Power Grid | Kafka · Spark Streaming · Akka | 🔄 In Progress |
+| #1 Smart Power Grid | Kafka · Spark Streaming · MPI | 🔄 In Progress |
 | #2 Digital Twin | Contiki-NG · Akka · Node-RED | 🔄 In Progress |
 
 ---
@@ -36,9 +36,8 @@ nsds-project/
 │   ├── akka-actors/                ← Actores réplica del estado IoT (Persona C)
 │   └── node-red/                   ← Flujos de coordinación JSON (Persona A/B)
 │
-└── docs/
-    ├── design-project1.md          ← Documento diseño P1 (entregar el 30/06)
-    └── design-project2.md          ← Documento diseño P2 (entregar el 30/06)
+Documentos de diseño (P1 y P2) enviados por email antes de la discusión,
+no versionados en este repositorio.
 ```
 
 ---
@@ -52,11 +51,19 @@ nsds-project/
 ```
 - Kafka disponible en `localhost:9092`
 
-### 2. Compilar un componente Java
+### 2. Compilar y ejecutar Component 1 (Kafka)
 ```bash
 cd project1-smartgrid/component1-kafka
 mvn clean package
-java -jar target/component1-kafka-1.0-jar-with-dependencies.jar
+# el jar tiene 5 servicios distintos, no una clase principal fija:
+# hay que indicar la clase con -cp, "java -jar" solo no funciona
+java -cp target/component1-kafka-1.0-jar-with-dependencies.jar smartgrid.kafka.AccountService list
+```
+Las 5 clases son `AccountService`, `DistrictNodeManager`, `MeasurementService`, `BillingService` y `PresentationService` (todas en el paquete `smartgrid.kafka`). Cada una imprime su uso si se ejecuta sin argumentos.
+
+Por defecto todas usan `localhost:9092`. Para apuntar a otra máquina (por ejemplo, con Tailscale) sin recompilar, exporta `KAFKA_BROKER` antes de ejecutar:
+```bash
+export KAFKA_BROKER=100.x.x.x:9092
 ```
 
 ### 3. Node-RED + serial-bridge

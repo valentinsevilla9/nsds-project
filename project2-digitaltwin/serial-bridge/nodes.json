@@ -1,10 +1,8 @@
 {
     "mqttBroker": "mqtt://localhost:1883",
-    "heartbeatMultiplier": 3,
-    "defaultPeriodMs": 4000,
     "udpCommandPort": 5678,
 
-    "_comment_nodes": "Rellenad un objeto por mote. serialHost/serialPort son los del plugin 'Serial Socket (SERVER)' de Cooja para ese mote (Tools -> Serial Socket (SERVER), uno por mote). ipv6 es la direccion real del mote dentro de la red simulada (solo hace falta si vais a probar el cambio de periodo, y requiere que vuestro border router tenga tunslip6 conectado al host).",
+    "_comment_nodes": "serialHost/serialPort son los del plugin 'Serial Socket (SERVER)' de Cooja para ese mote (Tools -> Serial Socket (SERVER), uno por mote). ipv6 es la direccion real del mote dentro de la red simulada (solo hace falta si vais a probar el cambio de periodo, y requiere que vuestro border router tenga tunslip6 conectado al host). El timeout de heartbeat (cuando se considera un nodo crasheado) ya no vive aqui, se calcula en el flujo de Node-RED.",
     "nodes": [
         { "nodeId": "1", "serialHost": "localhost", "serialPort": 60001, "ipv6": "fd00::201:1:1:1" },
         { "nodeId": "2", "serialHost": "localhost", "serialPort": 60002, "ipv6": "fd00::202:2:2:2" },

@@ -17,7 +17,7 @@ import java.util.*;
 // medias (la ventana de facturacion en curso) que no vive en ningún topic.
 public class BillingService {
 
-    private static final String SERVER_ADDR = "localhost:9092";
+    private static final String SERVER_ADDR = System.getenv().getOrDefault("KAFKA_BROKER", "localhost:9092");
     private static final String MEASUREMENTS_TOPIC = "measurements";
     private static final String BILLING_TOPIC = "billing-records";
     private static final String CONSUMER_GROUP = "billing-service-group";

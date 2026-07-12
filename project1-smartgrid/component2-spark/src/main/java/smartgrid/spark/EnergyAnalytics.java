@@ -33,7 +33,11 @@ public class EnergyAnalytics {
 
         public static void main(String[] args) throws TimeoutException, StreamingQueryException, java.io.IOException {
                 String master = args.length > 0 ? args[0] : "local[4]";
-                String kafkaBroker = args.length > 1 ? args[1] : "localhost:9092";
+                // igual que en Component 1: si no se pasa por argumento, usa la
+                // variable de entorno KAFKA_BROKER (de scripts/team.env) antes de
+                // caer en localhost
+                String kafkaBroker = args.length > 1 ? args[1]
+                                : System.getenv().getOrDefault("KAFKA_BROKER", "localhost:9092");
 
                 SparkSession spark = SparkSession.builder().master(master).appName("SmartGrid-EnergyAnalytics")
                                 .getOrCreate();

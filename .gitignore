@@ -26,6 +26,9 @@ kafka-data/
 # Node-RED local data
 .node-red/
 
+# IPs reales del equipo (cada uno tiene el suyo, ver team.env.example)
+scripts/team.env
+
 # Node.js dependencies (serial-bridge)
 node_modules/
 

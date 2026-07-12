@@ -1,9 +1,7 @@
 #!/bin/bash
-# ============================================================
-# setup.sh — Verifica e instala todas las dependencias
-# Ejecutar UNA VEZ en cada portátil del grupo
-# Compatible con macOS y Linux (Ubuntu/Debian)
-# ============================================================
+# setup.sh - comprueba (e instala si falta) todo lo necesario para Proyecto 1.
+# Compatible con macOS y Linux (Ubuntu/Debian). En Windows, correr esto
+# dentro de WSL, no en PowerShell.
 
 set -e
 GREEN='\033[0;32m'
@@ -11,13 +9,13 @@ RED='\033[0;31m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo "================================================"
-echo "  NSDS Project — Setup de dependencias"
-echo "================================================"
+echo ""
+echo "  NSDS Project - Setup de dependencias"
+echo ""
 
 check() {
-    if command -v $1 &> /dev/null; then
-        echo -e "${GREEN}✓ $1 encontrado: $(command -v $1)${NC}"
+    if command -v "$1" &> /dev/null; then
+        echo -e "${GREEN}✓ $1 encontrado: $(command -v "$1")${NC}"
         return 0
     else
         echo -e "${RED}✗ $1 NO encontrado${NC}"
@@ -25,7 +23,6 @@ check() {
     fi
 }
 
-# ── Java 21 ──────────────────────────────────────────────────
 echo ""
 echo "[ Java 21 ]"
 if check java; then
@@ -33,21 +30,19 @@ if check java; then
     echo "  Versión: $VERSION"
 else
     echo -e "${YELLOW}  → Instala Java 21 desde: https://adoptium.net/${NC}"
-    echo "    macOS:  brew install openjdk@21"
-    echo "    Ubuntu: sudo apt install openjdk-21-jdk"
+    echo "macOS:  brew install openjdk@21"
+    echo "Ubuntu: sudo apt install openjdk-21-jdk"
 fi
 
-# ── Maven ────────────────────────────────────────────────────
 echo ""
 echo "[ Maven ]"
 if check mvn; then
     mvn -version | head -1
 else
     echo -e "${YELLOW}  → macOS:  brew install maven${NC}"
-    echo "    Ubuntu: sudo apt install maven"
+    echo "Ubuntu: sudo apt install maven"
 fi
 
-# ── Git ──────────────────────────────────────────────────────
 echo ""
 echo "[ Git ]"
 if check git; then
@@ -61,7 +56,6 @@ if check git; then
     fi
 fi
 
-# ── Node.js + Node-RED ───────────────────────────────────────
 echo ""
 echo "[ Node.js + Node-RED ]"
 if check node; then
@@ -73,24 +67,30 @@ if check node; then
     fi
 else
     echo -e "${YELLOW}  → Instala Node.js 18+ desde: https://nodejs.org/${NC}"
-    echo "    macOS:  brew install node"
-    echo "    Ubuntu: sudo apt install nodejs npm"
+    echo "macOS:  brew install node"
+    echo "Ubuntu: sudo apt install nodejs npm"
 fi
 
-# ── MPI (OpenMPI/MPICH) ───────────────────────────────────────
 echo ""
 echo "[ MPI ]"
-if check mpicc && check mpirun; then
+# Comprobamos los dos por separado (no con "check mpicc && check
+# mpirun"), si no en cuanto falte uno el otro ni se llega a mirar.
+# Y "check X && OK=0" en vez de "check X; OK=$?" porque con set -e activo,
+# un comando suelto que falla corta el script - dentro de un && no pasa.
+MPICC_OK=1
+MPIRUN_OK=1
+check mpicc && MPICC_OK=0
+check mpirun && MPIRUN_OK=0
+if [ $MPICC_OK -eq 0 ] && [ $MPIRUN_OK -eq 0 ]; then
     mpirun --version | head -1
 else
     echo -e "${YELLOW}  → Instala OpenMPI:${NC}"
-    echo "    macOS:  brew install open-mpi"
-    echo "    Ubuntu: sudo apt install openmpi-bin libopenmpi-dev"
+    echo "macOS:   brew install open-mpi"
+    echo "Ubuntu:  sudo apt install openmpi-bin libopenmpi-dev"
+    echo "Windows: no hay instalación nativa limpia, usa WSL y ejecuta este script ahí dentro"
 fi
 
-# ── Resumen final ────────────────────────────────────────────
 echo ""
-echo "================================================"
 echo "  Siguiente paso: ejecuta ./scripts/start-env.sh"
 echo "  para arrancar Kafka."
-echo "================================================"
+echo ""

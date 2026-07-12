@@ -14,25 +14,22 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Scanner;
+import java.util.function.BiFunction;
 
-/**
- * DigitalTwinMain — arranca el sistema de actores del Digital Twin
- * y expone una API HTTP para que Node-RED pueda comunicarse con los actores.
- *
- * Node-RED envía eventos (cambio de padre, crash, etc.) a este servidor HTTP,
- * que los traduce en mensajes Akka a los actores correspondientes.
- *
- * Endpoints HTTP (escucha en puerto 8080):
- * POST /parent-update {"nodeId":"1","newParentId":"2"}
- * POST /app-msg {"fromNodeId":"1","seqNum":42}
- * POST /set-period {"nodeId":"1","periodMs":5000}
- * POST /node-crash {"nodeId":"1"}
- * GET /status devuelve lista de nodos activos
- *
- * Uso: java DigitalTwinMain [numNodes] [httpPort]
- * numNodes: número de nodos IoT a simular (default: 4)
- * httpPort: puerto HTTP para Node-RED (default: 8080)
- */
+// Arranca los actores del digital twin y expone una API HTTP sencilla
+// para que Node-RED pueda hablar con ellos. 
+// Node-RED nos manda eventos (cambio de padre, crash...) por POST, y aqui los traducimos al
+// mensaje de Akka que le toca a cada actor.
+//
+// Endpoints (puerto 8080 por defecto):
+// POST /parent-update {"nodeId":"1","newParentId":"2"}
+// POST /app-msg        {"fromNodeId":"1","seqNum":42}
+// POST /set-period      {"nodeId":"1","periodMs":5000}
+// POST /node-crash      {"nodeId":"1"}
+// POST /node-recovered  {"nodeId":"1"}
+// GET  /status          lista de nodos activos
+//
+// Uso: java DigitalTwinMain [numNodes] [httpPort]
 public class DigitalTwinMain {
 
     private static final Map<String, ActorRef> nodeActors = new HashMap<>();
@@ -45,13 +42,12 @@ public class DigitalTwinMain {
         System.out.println("=== Digital Twin for IoT Network ===");
         System.out.println("Nodes:     " + numNodes);
         System.out.println("HTTP port: " + httpPort);
-        System.out.println("====================================\n");
+        System.out.println("\n");
 
         system = ActorSystem.create("DigitalTwin");
 
-        // Crear un actor por nodo IoT
-        // El nodo 1 es el root (border router), los demás son nodos regulares
-        // Estado inicial: todos conectados al root como padre
+        // un actor por nodo IoT. El nodo 1 hace de root
+        // (todos los demas arrancan con el como padre)
         for (int i = 1; i <= numNodes; i++) {
             String nodeId = String.valueOf(i);
             String initialParent = (i == 1) ? "root" : "1";
@@ -63,7 +59,6 @@ public class DigitalTwinMain {
                     " (parent=" + initialParent + ", period=4000ms)");
         }
 
-        // Arrancar servidor HTTP para Node-RED
         HttpServer server = HttpServer.create(new InetSocketAddress(httpPort), 0);
         server.createContext("/parent-update", new ParentUpdateHandler());
         server.createContext("/app-msg", new AppMsgHandler());
@@ -84,96 +79,69 @@ public class DigitalTwinMain {
         system.terminate();
     }
 
-    // ── HTTP Handlers ─────────────────────────────────────────────────────
+    // Los 4 handlers de los nodos son prácticamente iguales 
+    // (leer el body, sacar el nodeId, buscar el actor, mandarle un mensaje), 
+    // asi que comparten esta funcion
+    private static void handleNodeEvent(HttpExchange exchange, BiFunction<String, String, Object> messageFactory)
+            throws IOException {
+        if (!"POST".equals(exchange.getRequestMethod())) return;
+
+        String body = readBody(exchange);
+        String nodeId = extractField(body, "nodeId");
+        ActorRef actor = nodeActors.get(nodeId);
+        if (actor == null) {
+            respond(exchange, 404, "Node not found: " + nodeId);
+            return;
+        }
+        actor.tell(messageFactory.apply(nodeId, body), ActorRef.noSender());
+        respond(exchange, 200, "OK");
+    }
 
     static class ParentUpdateHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
-            if ("POST".equals(exchange.getRequestMethod())) {
-                String body = readBody(exchange);
-                String nodeId = extractField(body, "nodeId");
-                String newParentId = extractField(body, "newParentId");
-
-                ActorRef actor = nodeActors.get(nodeId);
-                if (actor != null) {
-                    actor.tell(new ParentUpdateMsg(nodeId, newParentId), ActorRef.noSender());
-                    respond(exchange, 200, "OK");
-                } else {
-                    respond(exchange, 404, "Node not found: " + nodeId);
-                }
-            }
-        }
-    }
-
-    static class AppMsgHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange exchange) throws IOException {
-            if ("POST".equals(exchange.getRequestMethod())) {
-                String body = readBody(exchange);
-                String fromNodeId = extractField(body, "fromNodeId");
-                int seqNum = Integer.parseInt(extractField(body, "seqNum"));
-
-                // Enviar AppMsg a todos los actores (broadcast, simulando tráfico al root)
-                for (ActorRef actor : nodeActors.values()) {
-                    actor.tell(new AppMsg(fromNodeId, seqNum), ActorRef.noSender());
-                }
-                respond(exchange, 200, "OK");
-            }
+            handleNodeEvent(exchange, (nodeId, body) -> new ParentUpdateMsg(nodeId, extractField(body, "newParentId")));
         }
     }
 
     static class SetPeriodHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
-            if ("POST".equals(exchange.getRequestMethod())) {
-                String body = readBody(exchange);
-                String nodeId = extractField(body, "nodeId");
-                int periodMs = Integer.parseInt(extractField(body, "periodMs"));
-
-                ActorRef actor = nodeActors.get(nodeId);
-                if (actor != null) {
-                    actor.tell(new SetPeriodMsg(periodMs), ActorRef.noSender());
-                    respond(exchange, 200, "OK");
-                } else {
-                    respond(exchange, 404, "Node not found: " + nodeId);
-                }
-            }
+            handleNodeEvent(exchange, (nodeId, body) -> new SetPeriodMsg(Integer.parseInt(extractField(body, "periodMs"))));
         }
     }
 
     static class NodeCrashHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
-            if ("POST".equals(exchange.getRequestMethod())) {
-                String body = readBody(exchange);
-                String nodeId = extractField(body, "nodeId");
-
-                ActorRef actor = nodeActors.get(nodeId);
-                if (actor != null) {
-                    actor.tell(new NodeCrashMsg(nodeId), ActorRef.noSender());
-                    respond(exchange, 200, "OK");
-                } else {
-                    respond(exchange, 404, "Node not found: " + nodeId);
-                }
-            }
+            handleNodeEvent(exchange, (nodeId, body) -> new NodeCrashMsg(nodeId));
         }
     }
 
     static class NodeRecoveredHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
-            if ("POST".equals(exchange.getRequestMethod())) {
-                String body = readBody(exchange);
-                String nodeId = extractField(body, "nodeId");
+            handleNodeEvent(exchange, (nodeId, body) -> new NodeRecoveredMsg(nodeId));
+        }
+    }
 
-                ActorRef actor = nodeActors.get(nodeId);
-                if (actor != null) {
-                    actor.tell(new NodeRecoveredMsg(nodeId), ActorRef.noSender());
-                    respond(exchange, 200, "OK");
-                } else {
-                    respond(exchange, 404, "Node not found: " + nodeId);
-                }
+    // Este o trae un nodeId propio, trae fromNodeId (quien mando el mensaje). 
+    // En la red real todo el trafico de aplicacion converge en el root, asi que aqui hacemos
+    // lo mismo y se lo mandamos solo al actor del root ("1"), en vez de a todos los actores.
+    static class AppMsgHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if (!"POST".equals(exchange.getRequestMethod())) return;
+
+            String body = readBody(exchange);
+            String fromNodeId = extractField(body, "fromNodeId");
+            int seqNum = Integer.parseInt(extractField(body, "seqNum"));
+
+            ActorRef root = nodeActors.get("1");
+            if (root != null) {
+                root.tell(new AppMsg(fromNodeId, seqNum), ActorRef.noSender());
             }
+            respond(exchange, 200, "OK");
         }
     }
 
@@ -193,8 +161,6 @@ public class DigitalTwinMain {
         }
     }
 
-    // ── Utilidades HTTP ───────────────────────────────────────────────────
-
     private static String readBody(HttpExchange exchange) throws IOException {
         InputStream is = exchange.getRequestBody();
         return new String(is.readAllBytes(), StandardCharsets.UTF_8);
@@ -209,17 +175,14 @@ public class DigitalTwinMain {
         os.close();
     }
 
-    /**
-     * Extrae un campo de un JSON simple sin librería externa.
-     * Ejemplo: extractField({"nodeId":"1","newParentId":"2"}, "nodeId") -> "1"
-     */
+    // parser de JSON casero, sin libreria externa, porque los payloads
+    // que nos llegan son siempre planos: {"campo":"valor", ...}
     private static String extractField(String json, String field) {
         String key = "\"" + field + "\"";
         int idx = json.indexOf(key);
         if (idx < 0)
             return "";
         idx += key.length();
-        // Saltar hasta el valor
         while (idx < json.length() && (json.charAt(idx) == ':' || json.charAt(idx) == ' '))
             idx++;
         if (idx >= json.length())

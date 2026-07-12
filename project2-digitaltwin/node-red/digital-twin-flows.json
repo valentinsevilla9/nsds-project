@@ -40,7 +40,7 @@
         "type": "function",
         "z": "flow-digital-twin",
         "name": "Parse Parent Update",
-        "func": "// Topic: iot/<nodeId>/parent\n// Payload: <newParentId>\nvar parts = msg.topic.split('/');\nvar nodeId = parts[1];\nvar newParentId = msg.payload;\n\nmsg.payload = JSON.stringify({\n    nodeId: nodeId,\n    newParentId: newParentId\n});\nmsg.headers = {'Content-Type': 'application/json'};\nmsg.url = 'http://localhost:8080/parent-update';\nreturn msg;",
+        "func": "// Topic: iot/<nodeId>/parent\n// Payload: <newParentId>\nvar parts = msg.topic.split('/');\nvar nodeId = parts[1];\nvar newParentId = msg.payload;\n\n// para que el heartbeat checker sepa que este nodo sigue vivo\nvar known = flow.get('knownNodes') || [];\nif (known.indexOf(nodeId) === -1) { known.push(nodeId); flow.set('knownNodes', known); }\nflow.set('lastSeen_' + nodeId, Date.now());\n\nmsg.payload = JSON.stringify({\n    nodeId: nodeId,\n    newParentId: newParentId\n});\nmsg.headers = {'Content-Type': 'application/json'};\nmsg.url = 'http://localhost:8080/parent-update';\nreturn msg;",
         "outputs": 1,
         "x": 380,
         "y": 100,
@@ -71,7 +71,7 @@
         "type": "function",
         "z": "flow-digital-twin",
         "name": "Parse App Message",
-        "func": "// Topic: iot/<nodeId>/msg\n// Payload: <seqNum>\nvar parts = msg.topic.split('/');\nvar nodeId = parts[1];\n\nmsg.payload = JSON.stringify({\n    fromNodeId: nodeId,\n    seqNum: parseInt(msg.payload)\n});\nmsg.headers = {'Content-Type': 'application/json'};\nmsg.url = 'http://localhost:8080/app-msg';\nreturn msg;",
+        "func": "// Topic: iot/<nodeId>/msg\n// Payload: <seqNum>\nvar parts = msg.topic.split('/');\nvar nodeId = parts[1];\n\n// para que el heartbeat checker sepa que este nodo sigue vivo\nvar known = flow.get('knownNodes') || [];\nif (known.indexOf(nodeId) === -1) { known.push(nodeId); flow.set('knownNodes', known); }\nflow.set('lastSeen_' + nodeId, Date.now());\n\nmsg.payload = JSON.stringify({\n    fromNodeId: nodeId,\n    seqNum: parseInt(msg.payload)\n});\nmsg.headers = {'Content-Type': 'application/json'};\nmsg.url = 'http://localhost:8080/app-msg';\nreturn msg;",
         "outputs": 1,
         "x": 380,
         "y": 200,
@@ -222,7 +222,7 @@
         "type": "function",
         "z": "flow-digital-twin",
         "name": "Set Period",
-        "func": "// Forward period change to Akka actor\nmsg.headers = {'Content-Type': 'application/json'};\nmsg.payload = JSON.stringify(msg.payload);\nmsg.url = 'http://localhost:8080/set-period';\n\n// Also send to IoT node via MQTT\nvar mqttMsg = {\n    topic: 'iot/' + msg.payload.nodeId + '/period',\n    payload: String(msg.payload.periodMs)\n};\nreturn [msg, mqttMsg];",
+        "func": "// Forward period change to Akka actor\n// OJO: hay que leer nodeId/periodMs del payload ANTES de convertirlo a\n// texto, si no msg.payload.nodeId sale undefined (bug que habia antes)\nvar nodeId = msg.payload.nodeId;\nvar periodMs = msg.payload.periodMs;\n\n// para que el heartbeat checker calcule bien el timeout de este nodo\nflow.set('period_' + nodeId, periodMs);\n\nmsg.headers = {'Content-Type': 'application/json'};\nmsg.payload = JSON.stringify({ nodeId: nodeId, periodMs: periodMs });\nmsg.url = 'http://localhost:8080/set-period';\n\n// Also send to IoT node via MQTT\nvar mqttMsg = {\n    topic: 'iot/' + nodeId + '/period',\n    payload: String(periodMs)\n};\nreturn [msg, mqttMsg];",
         "outputs": 2,
         "x": 420,
         "y": 460,
@@ -234,5 +234,58 @@
                 "mqtt-recovery"
             ]
         ]
+    },
+    {
+        "id": "inject-heartbeat-tick",
+        "type": "inject",
+        "z": "flow-digital-twin",
+        "name": "Heartbeat Tick (every 2s)",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "2",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 2,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 200,
+        "y": 560,
+        "wires": [
+            [
+                "fn-check-heartbeats"
+            ]
+        ]
+    },
+    {
+        "id": "fn-check-heartbeats",
+        "type": "function",
+        "z": "flow-digital-twin",
+        "name": "Check Heartbeats",
+        "func": "// corre cada 2s. Por cada nodo que conocemos (lo aprendimos en\n// fn-parse-parent/fn-parse-app-msg), miramos si lleva demasiado sin\n// dar señales de vida segun su propio periodo T, y si cambio de\n// estado (vivo <-> crasheado) publicamos el evento correspondiente.\n// Esta es la logica de coordinacion que antes vivia en el bridge, y\n// que el enunciado pide que este aqui, en Node-RED.\nvar HEARTBEAT_MULTIPLIER = 3;\nvar DEFAULT_PERIOD_MS = 4000;\nvar now = Date.now();\nvar known = flow.get('knownNodes') || [];\nvar events = [];\n\nknown.forEach(function (nodeId) {\n    var lastSeen = flow.get('lastSeen_' + nodeId) || 0;\n    var period = flow.get('period_' + nodeId) || DEFAULT_PERIOD_MS;\n    var crashed = flow.get('crashed_' + nodeId) || false;\n    var timeoutMs = period * HEARTBEAT_MULTIPLIER;\n\n    if (!crashed && (now - lastSeen) > timeoutMs) {\n        flow.set('crashed_' + nodeId, true);\n        events.push({ topic: 'iot/' + nodeId + '/crash', payload: '' });\n    } else if (crashed && (now - lastSeen) <= timeoutMs) {\n        flow.set('crashed_' + nodeId, false);\n        events.push({ topic: 'iot/' + nodeId + '/recovered', payload: '' });\n    }\n});\n\nreturn [events];",
+        "outputs": 1,
+        "x": 440,
+        "y": 560,
+        "wires": [
+            [
+                "mqtt-heartbeat-out"
+            ]
+        ]
+    },
+    {
+        "id": "mqtt-heartbeat-out",
+        "type": "mqtt out",
+        "z": "flow-digital-twin",
+        "name": "Heartbeat Events",
+        "topic": "",
+        "qos": "0",
+        "retain": false,
+        "broker": "mqtt-broker-vm",
+        "x": 680,
+        "y": 560,
+        "wires": []
     }
 ]

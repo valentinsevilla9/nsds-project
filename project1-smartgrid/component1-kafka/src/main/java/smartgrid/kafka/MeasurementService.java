@@ -15,7 +15,7 @@ import java.util.Random;
 // de node-events, igual que hace DistrictNodeManager con user-events.
 public class MeasurementService {
 
-    private static final String SERVER_ADDR = "localhost:9092";
+    private static final String SERVER_ADDR = System.getenv().getOrDefault("KAFKA_BROKER", "localhost:9092");
     private static final String NODE_EVENTS_TOPIC = "node-events";
     private static final String MEASUREMENTS_TOPIC = "measurements";
 

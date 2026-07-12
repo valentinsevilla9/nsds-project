@@ -1,22 +1,18 @@
 'use strict';
 
 /*
- * bridge.js — puente entre los motes Cooja y el broker MQTT que consume
- * el flujo Node-RED del Digital Twin (Proyecto #2).
+ * bridge.js - puente de PROTOCOLO entre los motes Cooja y MQTT/UDP.
+ * Solo traduce formatos, no decide nada por su cuenta.
  *
- * Uplink (mote -> MQTT): se conecta por TCP al plugin "Serial Socket
- * (SERVER)" de cada mote en Cooja, parsea las lineas PARENT_CHANGE:/
- * MSG_SENT: que emite iot-node.c y las publica en iot/<nodeId>/parent
- * y iot/<nodeId>/msg (mismos topics que ya consume digital-twin-flows.json).
- *
- * Crash/recovery: se detecta por heartbeat-timeout (sin MSG_SENT durante
- * heartbeatMultiplier x periodo actual), no por cierre de conexion, para
- * no depender de como se simule exactamente el crash del mote.
+ * Uplink (mote -> MQTT): se conecta por TCP al Serial Socket de cada
+ * mote en Cooja, parsea las lineas PARENT_CHANGE:/MSG_SENT: que emite
+ * iot-node.c y las publica tal cual en iot/<nodeId>/parent y
+ * iot/<nodeId>/msg.
  *
  * Downlink (MQTT -> mote): reenvia iot/<nodeId>/period como UDP
  * "PERIOD:<segundos>" a la IPv6 real del mote. Esto solo llega a la red
  * simulada si el border router de Cooja tiene tunslip6 (u equivalente)
- * conectado al host -- si no lo teneis, esta parte no podra funcionar.
+ * conectado al host.
  *
  * Configuracion en nodes.json.
  */
@@ -32,8 +28,6 @@ const config = JSON.parse(fs.readFileSync(path.join(__dirname, 'nodes.json'), 'u
 const mqttClient = mqtt.connect(config.mqttBroker);
 const udpSocket = dgram.createSocket('udp6');
 
-const nodeState = new Map(); // nodeId -> { lastSeenMs, crashed, periodMs }
-
 function log(...args) {
     console.log(new Date().toISOString(), '-', ...args);
 }
@@ -47,23 +41,10 @@ function resolveNodeIdByIpv6(ipv6) {
     return match ? match.nodeId : null;
 }
 
-function markAlive(nodeId) {
-    const state = nodeState.get(nodeId);
-    if (!state) return;
-    state.lastSeenMs = Date.now();
-    if (state.crashed) {
-        state.crashed = false;
-        log(`Nodo ${nodeId} ha vuelto a dar señales de vida -> recovered`);
-        publish(`iot/${nodeId}/recovered`, '');
-    }
-}
-
 function handleLine(nodeId, line) {
     const parentMatch = line.match(/PARENT_CHANGE:\s*([0-9a-fA-F:]+)/);
     const msgMatch = line.match(/MSG_SENT:\s*(\d+)/);
     if (!parentMatch && !msgMatch) return;
-
-    markAlive(nodeId);
 
     if (parentMatch) {
         const rawParentAddr = parentMatch[1];
@@ -77,12 +58,6 @@ function handleLine(nodeId, line) {
 
 function connectSerial(nodeCfg) {
     const nodeId = nodeCfg.nodeId;
-    nodeState.set(nodeId, {
-        lastSeenMs: Date.now(),
-        crashed: false,
-        periodMs: config.defaultPeriodMs,
-    });
-
     let buffer = '';
 
     const connect = () => {
@@ -143,23 +118,7 @@ function forwardPeriodChange(nodeId, rawPayload) {
             return;
         }
         log(`PERIOD:${periodSeconds} enviado a nodo ${nodeId} (${nodeCfg.ipv6}) -- requiere border router/tunslip6 activo`);
-        const state = nodeState.get(nodeId);
-        if (state) state.periodMs = periodMs;
     });
-}
-
-function checkHeartbeats() {
-    const now = Date.now();
-    for (const nodeCfg of config.nodes) {
-        const state = nodeState.get(nodeCfg.nodeId);
-        if (!state || state.crashed) continue;
-        const timeoutMs = state.periodMs * config.heartbeatMultiplier;
-        if (now - state.lastSeenMs > timeoutMs) {
-            state.crashed = true;
-            log(`Nodo ${nodeCfg.nodeId} sin actividad durante ${timeoutMs}ms -> crash`);
-            publish(`iot/${nodeCfg.nodeId}/crash`, '');
-        }
-    }
 }
 
 mqttClient.on('connect', () => {
@@ -177,7 +136,6 @@ mqttClient.on('message', (topic, payload) => {
 mqttClient.on('error', (err) => log('Error MQTT:', err.message));
 
 config.nodes.forEach(connectSerial);
-setInterval(checkHeartbeats, 2000);
 
 process.on('SIGINT', () => {
     udpSocket.close();
