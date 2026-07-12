@@ -25,16 +25,16 @@ check() {
     fi
 }
 
-# ── Java 17 ──────────────────────────────────────────────────
+# ── Java 21 ──────────────────────────────────────────────────
 echo ""
-echo "[ Java 17 ]"
+echo "[ Java 21 ]"
 if check java; then
     VERSION=$(java -version 2>&1 | head -1)
     echo "  Versión: $VERSION"
 else
-    echo -e "${YELLOW}  → Instala Java 17 desde: https://adoptium.net/${NC}"
-    echo "    macOS:  brew install openjdk@17"
-    echo "    Ubuntu: sudo apt install openjdk-17-jdk"
+    echo -e "${YELLOW}  → Instala Java 21 desde: https://adoptium.net/${NC}"
+    echo "    macOS:  brew install openjdk@21"
+    echo "    Ubuntu: sudo apt install openjdk-21-jdk"
 fi
 
 # ── Maven ────────────────────────────────────────────────────
@@ -92,5 +92,5 @@ fi
 echo ""
 echo "================================================"
 echo "  Siguiente paso: ejecuta ./scripts/start-env.sh"
-echo "  para arrancar Kafka y Spark con Docker."
+echo "  para arrancar Kafka."
 echo "================================================"

@@ -2,7 +2,7 @@
 # Estrategia "round-robin": los ranks de un mismo distrito se reparten
 # entre hosts, forzando que el MPI_Reduce cruce la red en cada paso.
 #
-# Edita HOST_LIST con los hostnames/IPs reales de vuestras maquinas.
+# Editar HOST_LIST con los hostnames/IPs reales de nuestros portátiles.
 #
 # Uso: ./run-round-robin.sh [nodesPerDistrict] [simSteps] [numDistricts]
 
@@ -20,5 +20,5 @@ for ((i = 0; i < NP; i++)); do
 done
 HOSTS="${HOSTS%,}"
 
-echo "Estrategia: round-robin | hosts=$HOSTS | np=$NP"
+echo "Strategy: round-robin | hosts=$HOSTS | np=$NP"
 mpirun -H "$HOSTS" -np "$NP" --oversubscribe ./district_simulation "$NODES_PER_DISTRICT" "$SIM_STEPS"

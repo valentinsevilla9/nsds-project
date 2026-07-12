@@ -2,9 +2,9 @@ package smartgrid.spark;
 
 import java.io.Serializable;
 
-/**
- * Salida de Query 1 (mapGroupsWithState) por cada distrito y micro-batch.
- */
+// Fila que sale por consola en cada micro-batch de la Query 1: cuanto ha
+// cambiado el balance de este distrito en este batch concreto (batchBalanceKw, numMeasurements), 
+// y la carga acumulada de siempre (accumulatorChargeKwh, esta si es un total real, no del batch).
 public class DistrictChargeUpdate implements Serializable {
 
     private String districtId;

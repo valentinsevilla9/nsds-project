@@ -1,15 +1,19 @@
 package smartgrid.kafka;
 
 import com.google.gson.Gson;
-import org.apache.kafka.clients.consumer.*;
-import org.apache.kafka.common.PartitionInfo;
-import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.serialization.StringDeserializer;
 
-import java.time.Duration;
-import java.time.temporal.ChronoUnit;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 
+// Este es el unico de los 5 que no publica nada, solo lee. Se monta su propia vista leyendo 
+// node-events y billing-records enteros, y con eso responde a las dos consultas que
+// pide el enunciado: 
+// 1) Ver los nodos de un usuario con sus costes
+// 2) Un resumen por distrito.
 public class PresentationService {
 
     private static final String SERVER_ADDR = "localhost:9092";
@@ -22,9 +26,12 @@ public class PresentationService {
 
     public static class NodeView {
         public String nodeId, districtId, nodeType, ownerId;
+
         public NodeView(String nodeId, String districtId, String nodeType, String ownerId) {
-            this.nodeId = nodeId; this.districtId = districtId;
-            this.nodeType = nodeType; this.ownerId = ownerId;
+            this.nodeId = nodeId;
+            this.districtId = districtId;
+            this.nodeType = nodeType;
+            this.ownerId = ownerId;
         }
     }
 
@@ -33,37 +40,43 @@ public class PresentationService {
         public double totalEnergyKwh, cost;
         public int measurementCount;
         public long periodEnd;
+
         public BillingView(String nodeId, double totalEnergyKwh, double cost,
-                           int measurementCount, long periodEnd) {
-            this.nodeId = nodeId; this.totalEnergyKwh = totalEnergyKwh;
-            this.cost = cost; this.measurementCount = measurementCount;
+                int measurementCount, long periodEnd) {
+            this.nodeId = nodeId;
+            this.totalEnergyKwh = totalEnergyKwh;
+            this.cost = cost;
+            this.measurementCount = measurementCount;
             this.periodEnd = periodEnd;
         }
     }
 
-    // ── Fault Recovery con assign+seek ───────────────────────────────────────
-
     private void recoverState() {
-        System.out.println("[PresentationService] Recuperando estado...");
+        System.out.println("[PresentationService] Recovering state...");
 
-        recoverFromTopic(NODE_EVENTS_TOPIC, record -> {
+        KafkaSupport.replayTopic(SERVER_ADDR, NODE_EVENTS_TOPIC, record -> {
             @SuppressWarnings("unchecked")
             Map<String, Object> event = gson.fromJson(record.value(), Map.class);
             String eventType = (String) event.get("type");
             String nodeId = (String) event.get("nodeId");
             switch (eventType) {
-                case "NodeCreated": case "NodeUpdated":
+                case "NodeCreated":
+                case "NodeUpdated":
                     nodes.put(nodeId, new NodeView(nodeId,
                             (String) event.get("districtId"),
                             (String) event.get("nodeType"),
-                            (String) event.get("ownerId"))); break;
+                            (String) event.get("ownerId")));
+                    break;
                 case "NodeDeleted":
                     nodes.remove(nodeId);
-                    billingByNode.remove(nodeId); break;
+                    billingByNode.remove(nodeId);
+                    break;
             }
         });
 
-        recoverFromTopic(BILLING_TOPIC, record -> {
+        // aqui no reemplazamos nada, vamos ANADIENDO cada BillingRecord a
+        // la lista del nodo - es literalmente el historial de facturacion
+        KafkaSupport.replayTopic(SERVER_ADDR, BILLING_TOPIC, record -> {
             @SuppressWarnings("unchecked")
             Map<String, Object> event = gson.fromJson(record.value(), Map.class);
             String nodeId = (String) event.get("nodeId");
@@ -75,98 +88,54 @@ public class PresentationService {
                     .add(new BillingView(nodeId, energy, cost, count, periodEnd));
         });
 
-        System.out.println("[PresentationService] Estado recuperado: "
-                + nodes.size() + " nodos, "
+        System.out.println("[PresentationService] State recovered: "
+                + nodes.size() + " nodes, "
                 + billingByNode.values().stream().mapToInt(List::size).sum()
-                + " registros de facturacion.");
+                + " billing records.");
     }
 
-    private void recoverFromTopic(String topic,
-            java.util.function.Consumer<ConsumerRecord<String, String>> handler) {
-
-        final Properties props = new Properties();
-        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, SERVER_ADDR);
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, "ps-recovery-" + UUID.randomUUID());
-        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
-        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
-        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, String.valueOf(false));
-
-        try (KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props)) {
-            List<PartitionInfo> partitions = consumer.partitionsFor(topic);
-            if (partitions == null || partitions.isEmpty()) return;
-
-            List<TopicPartition> tps = new ArrayList<>();
-            for (PartitionInfo pi : partitions)
-                tps.add(new TopicPartition(pi.topic(), pi.partition()));
-
-            consumer.assign(tps);
-            consumer.seekToBeginning(tps);
-
-            Map<TopicPartition, Long> endOffsets = consumer.endOffsets(tps);
-            if (endOffsets.values().stream().noneMatch(o -> o > 0)) return;
-
-            Map<TopicPartition, Long> current = new HashMap<>();
-            tps.forEach(tp -> current.put(tp, 0L));
-
-            while (!reachedEnd(current, endOffsets)) {
-                ConsumerRecords<String, String> records =
-                        consumer.poll(Duration.of(3, ChronoUnit.SECONDS));
-                for (ConsumerRecord<String, String> record : records) {
-                    handler.accept(record);
-                    current.put(new TopicPartition(record.topic(), record.partition()),
-                            record.offset() + 1);
-                }
-            }
-        }
-    }
-
-    private boolean reachedEnd(Map<TopicPartition, Long> current, Map<TopicPartition, Long> end) {
-        for (Map.Entry<TopicPartition, Long> e : end.entrySet())
-            if (current.getOrDefault(e.getKey(), 0L) < e.getValue()) return false;
-        return true;
-    }
-
-    // ── Vistas ───────────────────────────────────────────────────────────────
-
+    // panel de un usuario: sus nodos, y por cada uno el historial de
+    // facturacion con el total sumado al final
     public void showUser(String userId) {
         List<NodeView> userNodes = new ArrayList<>();
         for (NodeView node : nodes.values())
-            if (userId.equals(node.ownerId)) userNodes.add(node);
+            if (userId.equals(node.ownerId))
+                userNodes.add(node);
 
         if (userNodes.isEmpty()) {
-            System.out.println("[PresentationService] Usuario '" + userId + "' no tiene nodos."); return;
+            System.out.println("[PresentationService] User '" + userId + "' has no nodes.");
+            return;
         }
 
-        System.out.println("==============================================");
-        System.out.println("  Panel de usuario: " + userId);
-        System.out.println("==============================================");
+        System.out.println("\nUser panel: " + userId);
 
         double totalCost = 0.0;
         for (NodeView node : userNodes) {
-            System.out.println("\n  Nodo: " + node.nodeId
-                    + "  |  Tipo: " + node.nodeType
-                    + "  |  Distrito: " + node.districtId);
+            System.out.println("\n  Node: " + node.nodeId
+                    + "  |  Type: " + node.nodeType
+                    + "  |  District: " + node.districtId);
             List<BillingView> records = billingByNode.getOrDefault(node.nodeId, Collections.emptyList());
             if (records.isEmpty()) {
-                System.out.println("    (sin registros de facturacion aun)");
+                System.out.println("    (no billing records yet)");
             } else {
                 double nodeCost = 0, nodeEnergy = 0;
-                System.out.println("    Historial:");
+                System.out.println("    History:");
                 for (int i = 0; i < records.size(); i++) {
                     BillingView br = records.get(i);
-                    nodeCost += br.cost; nodeEnergy += br.totalEnergyKwh;
-                    System.out.printf("    [%d] %.4f kWh -> %.4f EUR (%d mediciones)%n",
-                            i+1, br.totalEnergyKwh, br.cost, br.measurementCount);
+                    nodeCost += br.cost;
+                    nodeEnergy += br.totalEnergyKwh;
+                    System.out.printf("    [%d] %.4f kWh -> %.4f EUR (%d measurements)%n",
+                            i + 1, br.totalEnergyKwh, br.cost, br.measurementCount);
                 }
-                System.out.printf("    --- Total: %.4f kWh | %.4f EUR%n", nodeEnergy, nodeCost);
+                System.out.printf("    Total: %.4f kWh | %.4f EUR%n", nodeEnergy, nodeCost);
                 totalCost += nodeCost;
             }
         }
-        System.out.println("\n==============================================");
-        System.out.printf("  TOTAL USUARIO: %.4f EUR%n", totalCost);
-        System.out.println("==============================================");
+        System.out.printf("%nUser total: %.4f EUR%n", totalCost);
     }
 
+    // resumen global: cuantos nodos, energia y coste por cada distrito
+    // (TreeMap para que salgan ordenados alfabeticamente sin currarnoslo)
     public void showSummary() {
         Map<String, Integer> nodesByDistrict = new TreeMap<>();
         Map<String, Double> costByDistrict = new TreeMap<>();
@@ -180,36 +149,44 @@ public class PresentationService {
             }
         }
 
-        System.out.println("==============================================");
-        System.out.println("  Resumen global por distrito");
-        System.out.println("==============================================");
+        System.out.println("\nGlobal summary by district");
         if (nodesByDistrict.isEmpty()) {
-            System.out.println("  No hay distritos registrados.");
+            System.out.println("  No districts registered.");
         } else {
             for (String d : nodesByDistrict.keySet()) {
-                System.out.println("\n  Distrito: " + d);
-                System.out.println("    Nodos:   " + nodesByDistrict.get(d));
-                System.out.printf("    Energia: %.4f kWh%n", energyByDistrict.getOrDefault(d, 0.0));
-                System.out.printf("    Coste:   %.4f EUR%n", costByDistrict.getOrDefault(d, 0.0));
+                System.out.println("\n  District: " + d);
+                System.out.println("    Nodes:  " + nodesByDistrict.get(d));
+                System.out.printf("    Energy: %.4f kWh%n", energyByDistrict.getOrDefault(d, 0.0));
+                System.out.printf("    Cost:   %.4f EUR%n", costByDistrict.getOrDefault(d, 0.0));
             }
         }
-        System.out.println("==============================================");
     }
 
     public static void main(String[] args) {
         PresentationService service = new PresentationService();
         service.recoverState();
-        if (args.length == 0) { printUsage(); return; }
+        if (args.length == 0) {
+            printUsage();
+            return;
+        }
         switch (args[0]) {
-            case "show": if (args.length < 2) { printUsage(); return; }
-                service.showUser(args[1]); break;
-            case "summary": service.showSummary(); break;
-            default: printUsage();
+            case "show":
+                if (args.length < 2) {
+                    printUsage();
+                    return;
+                }
+                service.showUser(args[1]);
+                break;
+            case "summary":
+                service.showSummary();
+                break;
+            default:
+                printUsage();
         }
     }
 
     private static void printUsage() {
-        System.out.println("Uso:");
+        System.out.println("Usage:");
         System.out.println("  java PresentationService show <userId>");
         System.out.println("  java PresentationService summary");
     }

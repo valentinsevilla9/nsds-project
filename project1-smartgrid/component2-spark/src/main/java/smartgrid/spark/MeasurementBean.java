@@ -2,10 +2,10 @@ package smartgrid.spark;
 
 import java.io.Serializable;
 
-/**
- * Bean tipado de una medición, usado para tipar el stream con Encoders.bean
- * y poder aplicar mapGroupsWithState (Query 1 de EnergyAnalytics).
- */
+// Bean tipado de una medicion. Hace falta porque el resto del job trabaja con Dataset<Row> 
+// (sin tipos), pero mapGroupsWithState exige un Dataset tipado.
+// Encoders.bean solo sabe convertir a partir de una clase con esta pinta exacta 
+// (constructor vacio + getters/setters).
 public class MeasurementBean implements Serializable {
 
     private String nodeId;

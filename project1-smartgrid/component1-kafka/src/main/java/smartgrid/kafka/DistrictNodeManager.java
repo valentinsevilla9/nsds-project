@@ -1,17 +1,24 @@
 package smartgrid.kafka;
 
 import com.google.gson.Gson;
-import org.apache.kafka.clients.consumer.*;
-import org.apache.kafka.clients.producer.*;
-import org.apache.kafka.common.PartitionInfo;
-import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.serialization.StringDeserializer;
-import org.apache.kafka.common.serialization.StringSerializer;
+import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.ProducerRecord;
 
-import java.time.Duration;
-import java.time.temporal.ChronoUnit;
-import java.util.*;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 
+// Este servicio deja a los usuarios crear/editar/borrar nodos (producers,
+// consumers, accumulators) dentro de un distrito. 
+
+// Para saber si un usuario puede hacer algo, necesitamos saber que existe - 
+// y eso no lo sabemos nosotros, lo sabe AccountService. 
+// En vez de preguntarle por HTTP (eso seria acoplarnos a el), 
+// nos leemos su topic "user-events" y nos montamos nuestra propia copia (validUsers) 
+// de quien esta registrado.
+// Es "event-carried state transfer": copiamos el dato que necesitamos en
+// vez de depender de que el otro servicio este vivo para preguntarselo.
 public class DistrictNodeManager {
 
     private static final String SERVER_ADDR = "localhost:9092";
@@ -25,9 +32,13 @@ public class DistrictNodeManager {
     public static class GridNode {
         public String nodeId, districtId, type, ownerId;
         public double capacity;
+
         public GridNode(String nodeId, String districtId, String type, double capacity, String ownerId) {
-            this.nodeId = nodeId; this.districtId = districtId; this.type = type;
-            this.capacity = capacity; this.ownerId = ownerId;
+            this.nodeId = nodeId;
+            this.districtId = districtId;
+            this.type = type;
+            this.capacity = capacity;
+            this.ownerId = ownerId;
         }
     }
 
@@ -35,19 +46,26 @@ public class DistrictNodeManager {
         public String type, nodeId, districtId, nodeType, ownerId;
         public double capacity;
         public long timestamp;
+
         public NodeEvent(String type, String nodeId, String districtId,
-                         String nodeType, double capacity, String ownerId) {
-            this.type = type; this.nodeId = nodeId; this.districtId = districtId;
-            this.nodeType = nodeType; this.capacity = capacity; this.ownerId = ownerId;
+                String nodeType, double capacity, String ownerId) {
+            this.type = type;
+            this.nodeId = nodeId;
+            this.districtId = districtId;
+            this.nodeType = nodeType;
+            this.capacity = capacity;
+            this.ownerId = ownerId;
             this.timestamp = System.currentTimeMillis();
         }
     }
 
-    // ── Fault Recovery con assign+seek ───────────────────────────────────────
-
+    // Al arrancar, nos leemos dos topics enteros:
+    // user-events (para saber que usuarios son validos) y node-events (para
+    // reconstruir los nodos que ya existian).
+    // Los dos por separado, cada uno reconstruye su parte del estado.
     private void recoverState() {
-        System.out.println("[DistrictNodeManager] Recuperando estado...");
-        recoverFromTopic(USER_EVENTS_TOPIC, record -> {
+        System.out.println("[DistrictNodeManager] Recovering state...");
+        KafkaSupport.replayTopic(SERVER_ADDR, USER_EVENTS_TOPIC, record -> {
             @SuppressWarnings("unchecked")
             Map<String, Object> event = gson.fromJson(record.value(), Map.class);
             String eventType = (String) event.get("type");
@@ -57,134 +75,109 @@ public class DistrictNodeManager {
             else if ("UserDeleted".equals(eventType))
                 validUsers.remove(userId);
         });
-        recoverFromTopic(NODE_EVENTS_TOPIC, record ->
-                applyNodeEvent(gson.fromJson(record.value(), NodeEvent.class)));
-        System.out.println("[DistrictNodeManager] Estado recuperado: "
-                + validUsers.size() + " usuarios, " + nodes.size() + " nodos.");
-    }
-
-    private void recoverFromTopic(String topic,
-            java.util.function.Consumer<ConsumerRecord<String, String>> handler) {
-
-        final Properties props = new Properties();
-        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, SERVER_ADDR);
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, "dnm-recovery-" + UUID.randomUUID());
-        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
-        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
-        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, String.valueOf(false));
-
-        try (KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props)) {
-            List<PartitionInfo> partitions = consumer.partitionsFor(topic);
-            if (partitions == null || partitions.isEmpty()) return;
-
-            List<TopicPartition> tps = new ArrayList<>();
-            for (PartitionInfo pi : partitions)
-                tps.add(new TopicPartition(pi.topic(), pi.partition()));
-
-            consumer.assign(tps);
-            consumer.seekToBeginning(tps);
-
-            Map<TopicPartition, Long> endOffsets = consumer.endOffsets(tps);
-            if (endOffsets.values().stream().noneMatch(o -> o > 0)) return;
-
-            Map<TopicPartition, Long> current = new HashMap<>();
-            tps.forEach(tp -> current.put(tp, 0L));
-
-            while (!reachedEnd(current, endOffsets)) {
-                ConsumerRecords<String, String> records =
-                        consumer.poll(Duration.of(3, ChronoUnit.SECONDS));
-                for (ConsumerRecord<String, String> record : records) {
-                    handler.accept(record);
-                    current.put(new TopicPartition(record.topic(), record.partition()),
-                            record.offset() + 1);
-                }
-            }
-        }
-    }
-
-    private boolean reachedEnd(Map<TopicPartition, Long> current, Map<TopicPartition, Long> end) {
-        for (Map.Entry<TopicPartition, Long> e : end.entrySet())
-            if (current.getOrDefault(e.getKey(), 0L) < e.getValue()) return false;
-        return true;
+        KafkaSupport.replayTopic(SERVER_ADDR, NODE_EVENTS_TOPIC,
+                record -> applyNodeEvent(gson.fromJson(record.value(), NodeEvent.class)));
+        System.out.println("[DistrictNodeManager] State recovered: "
+                + validUsers.size() + " users, " + nodes.size() + " nodes.");
     }
 
     private void applyNodeEvent(NodeEvent event) {
         switch (event.type) {
-            case "NodeCreated": case "NodeUpdated":
+            case "NodeCreated":
+            case "NodeUpdated":
                 nodes.put(event.nodeId, new GridNode(event.nodeId, event.districtId,
-                        event.nodeType, event.capacity, event.ownerId)); break;
-            case "NodeDeleted": nodes.remove(event.nodeId); break;
+                        event.nodeType, event.capacity, event.ownerId));
+                break;
+            case "NodeDeleted":
+                nodes.remove(event.nodeId);
+                break;
         }
     }
 
-    // ── Producer ─────────────────────────────────────────────────────────────
-
-    private KafkaProducer<String, String> createProducer() {
-        final Properties props = new Properties();
-        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, SERVER_ADDR);
-        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
-        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
-        props.put(ProducerConfig.ACKS_CONFIG, "all");
-        return new KafkaProducer<>(props);
-    }
-
     private void publishNodeEvent(NodeEvent event) {
-        try (KafkaProducer<String, String> p = createProducer()) {
+        try (KafkaProducer<String, String> p = KafkaSupport.createProducer(SERVER_ADDR)) {
             p.send(new ProducerRecord<>(NODE_EVENTS_TOPIC, event.nodeId, gson.toJson(event)),
-                (m, ex) -> { if (ex != null) System.err.println(ex.getMessage());
-                             else System.out.println("[DistrictNodeManager] Evento publicado -> offset=" + m.offset()); });
+                    (m, ex) -> {
+                        if (ex != null)
+                            System.err.println(ex.getMessage());
+                        else
+                            System.out.println("[DistrictNodeManager] Event published -> offset=" + m.offset());
+                    });
             p.flush();
         }
     }
 
-    // ── Comandos ─────────────────────────────────────────────────────────────
-
+    // valida que el usuario exista (via nuestra copia de user-events),
+    // que el nodo no exista ya, y que el tipo sea uno de los tres validos
     public void createNode(String userId, String nodeId, String districtId, String type, double capacity) {
         if (!validUsers.contains(userId)) {
-            System.out.println("[DistrictNodeManager] ERROR: Usuario '" + userId + "' no registrado."); return; }
+            System.out.println("[DistrictNodeManager] ERROR: User '" + userId + "' not registered.");
+            return;
+        }
         if (nodes.containsKey(nodeId)) {
-            System.out.println("[DistrictNodeManager] ERROR: Nodo '" + nodeId + "' ya existe."); return; }
+            System.out.println("[DistrictNodeManager] ERROR: Node '" + nodeId + "' already exists.");
+            return;
+        }
         if (!isValidType(type)) {
-            System.out.println("[DistrictNodeManager] ERROR: Tipo debe ser PRODUCER, CONSUMER o ACCUMULATOR."); return; }
+            System.out.println("[DistrictNodeManager] ERROR: Type must be PRODUCER, CONSUMER or ACCUMULATOR.");
+            return;
+        }
         NodeEvent event = new NodeEvent("NodeCreated", nodeId, districtId, type, capacity, userId);
         publishNodeEvent(event);
         applyNodeEvent(event);
-        System.out.println("[DistrictNodeManager] Nodo creado: " + nodeId + " (" + type + ") en distrito " + districtId);
+        System.out
+                .println("[DistrictNodeManager] Node created: " + nodeId + " (" + type + ") in district " + districtId);
     }
 
+    // igual que createNode pero ademas comprueba que quien lo pide sea el dueño del
+    // nodo,
+    // no vale que cualquier usuario registrado toque el nodo de otro
     public void updateNode(String userId, String nodeId, String districtId, String type, double capacity) {
         if (!validUsers.contains(userId)) {
-            System.out.println("[DistrictNodeManager] ERROR: Usuario '" + userId + "' no registrado."); return; }
+            System.out.println("[DistrictNodeManager] ERROR: User '" + userId + "' not registered.");
+            return;
+        }
         if (!nodes.containsKey(nodeId)) {
-            System.out.println("[DistrictNodeManager] ERROR: Nodo '" + nodeId + "' no existe."); return; }
+            System.out.println("[DistrictNodeManager] ERROR: Node '" + nodeId + "' does not exist.");
+            return;
+        }
         if (!nodes.get(nodeId).ownerId.equals(userId)) {
-            System.out.println("[DistrictNodeManager] ERROR: No eres propietario del nodo."); return; }
+            System.out.println("[DistrictNodeManager] ERROR: You are not the owner of this node.");
+            return;
+        }
         NodeEvent event = new NodeEvent("NodeUpdated", nodeId, districtId, type, capacity, userId);
         publishNodeEvent(event);
         applyNodeEvent(event);
-        System.out.println("[DistrictNodeManager] Nodo actualizado: " + nodeId);
+        System.out.println("[DistrictNodeManager] Node updated: " + nodeId);
     }
 
     public void deleteNode(String userId, String nodeId) {
         if (!validUsers.contains(userId)) {
-            System.out.println("[DistrictNodeManager] ERROR: Usuario '" + userId + "' no registrado."); return; }
+            System.out.println("[DistrictNodeManager] ERROR: User '" + userId + "' not registered.");
+            return;
+        }
         if (!nodes.containsKey(nodeId)) {
-            System.out.println("[DistrictNodeManager] ERROR: Nodo '" + nodeId + "' no existe."); return; }
+            System.out.println("[DistrictNodeManager] ERROR: Node '" + nodeId + "' does not exist.");
+            return;
+        }
         if (!nodes.get(nodeId).ownerId.equals(userId)) {
-            System.out.println("[DistrictNodeManager] ERROR: No eres propietario del nodo."); return; }
+            System.out.println("[DistrictNodeManager] ERROR: You are not the owner of this node.");
+            return;
+        }
         NodeEvent event = new NodeEvent("NodeDeleted", nodeId, null, null, 0, userId);
         publishNodeEvent(event);
         applyNodeEvent(event);
-        System.out.println("[DistrictNodeManager] Nodo eliminado: " + nodeId);
+        System.out.println("[DistrictNodeManager] Node deleted: " + nodeId);
     }
 
     public void listNodes() {
-        if (nodes.isEmpty()) System.out.println("[DistrictNodeManager] No hay nodos.");
+        if (nodes.isEmpty())
+            System.out.println("[DistrictNodeManager] No nodes.");
         else {
-            System.out.println("[DistrictNodeManager] Nodos (" + nodes.size() + "):");
+            System.out.println("[DistrictNodeManager] Nodes (" + nodes.size() + "):");
             nodes.values().forEach(n -> System.out.println(
-                "  - " + n.nodeId + " | " + n.type + " | distrito=" + n.districtId
-                + " | cap=" + n.capacity + " | owner=" + n.ownerId));
+                    "  - " + n.nodeId + " | " + n.type + " | district=" + n.districtId
+                            + " | cap=" + n.capacity + " | owner=" + n.ownerId));
         }
     }
 
@@ -195,24 +188,46 @@ public class DistrictNodeManager {
     public static void main(String[] args) {
         DistrictNodeManager service = new DistrictNodeManager();
         service.recoverState();
-        if (args.length == 0) { printUsage(); return; }
+        if (args.length == 0) {
+            printUsage();
+            return;
+        }
         switch (args[0]) {
-            case "create": if (args.length < 5) { printUsage(); return; }
+            case "create":
+                if (args.length < 5) {
+                    printUsage();
+                    return;
+                }
                 service.createNode(args[1], args[2], args[3], args[4],
-                        args.length >= 6 ? Double.parseDouble(args[5]) : 0.0); break;
-            case "update": if (args.length < 5) { printUsage(); return; }
+                        args.length >= 6 ? Double.parseDouble(args[5]) : 0.0);
+                break;
+            case "update":
+                if (args.length < 5) {
+                    printUsage();
+                    return;
+                }
                 service.updateNode(args[1], args[2], args[3], args[4],
-                        args.length >= 6 ? Double.parseDouble(args[5]) : 0.0); break;
-            case "delete": if (args.length < 3) { printUsage(); return; }
-                service.deleteNode(args[1], args[2]); break;
-            case "list": service.listNodes(); break;
-            default: printUsage();
+                        args.length >= 6 ? Double.parseDouble(args[5]) : 0.0);
+                break;
+            case "delete":
+                if (args.length < 3) {
+                    printUsage();
+                    return;
+                }
+                service.deleteNode(args[1], args[2]);
+                break;
+            case "list":
+                service.listNodes();
+                break;
+            default:
+                printUsage();
         }
     }
 
     private static void printUsage() {
-        System.out.println("Uso:");
-        System.out.println("  java DistrictNodeManager create <userId> <nodeId> <districtId> <PRODUCER|CONSUMER|ACCUMULATOR> [capacity]");
+        System.out.println("Usage:");
+        System.out.println(
+                "  java DistrictNodeManager create <userId> <nodeId> <districtId> <PRODUCER|CONSUMER|ACCUMULATOR> [capacity]");
         System.out.println("  java DistrictNodeManager update <userId> <nodeId> <districtId> <type> [capacity]");
         System.out.println("  java DistrictNodeManager delete <userId> <nodeId>");
         System.out.println("  java DistrictNodeManager list");

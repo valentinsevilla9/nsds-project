@@ -2,7 +2,7 @@
 # Estrategia "by-district": cada distrito completo se coloca en el mismo
 # host, asi el MPI_Reduce intra-distrito se queda en memoria compartida.
 #
-# Edita HOST_LIST con los hostnames/IPs reales de vuestras maquinas
+# Editar HOST_LIST con los hostnames/IPs reales de nuestros portátiles
 # (un host por distrito; se reutilizan en orden si hay mas distritos
 # que hosts en la lista).
 #
@@ -22,5 +22,5 @@ for ((i = 0; i < NUM_DISTRICTS; i++)); do
 done
 HOSTS="${HOSTS%,}"
 
-echo "Estrategia: by-district | hosts=$HOSTS | np=$NP"
+echo "Strategy: by-district | hosts=$HOSTS | np=$NP"
 mpirun -H "$HOSTS" -np "$NP" --oversubscribe ./district_simulation "$NODES_PER_DISTRICT" "$SIM_STEPS"

@@ -28,8 +28,7 @@ nsds-project/
 ├── project1-smartgrid/
 │   ├── component1-kafka/           ← 5 microservicios event-driven (Persona B)
 │   ├── component2-spark/           ← Streaming analytics con windowing (Persona C)
-│   ├── component3-simulation/      ← Simulación distribuida Akka (todos)
-│   └── component3-mpi/             ← Misma simulación en MPI, para comparar estrategias de distribución (todos)
+│   └── component3-mpi/             ← Simulación distribuida de distritos en MPI (todos)
 │
 ├── project2-digitaltwin/
 │   ├── contiki-ng/                 ← Código C para nodos IoT en Cooja (Persona A)
@@ -73,7 +72,7 @@ node bridge.js
 ```
 Requiere un broker MQTT corriendo en `localhost:1883` (p. ej. Mosquitto) y, para que el cambio de período llegue al nodo real, un border router de Cooja con `tunslip6` conectado al host.
 
-### 4. Simulación MPI (Componente 3 alternativo)
+### 4. Simulación MPI (Componente 3)
 ```bash
 cd project1-smartgrid/component3-mpi
 make
