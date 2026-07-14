@@ -10,6 +10,7 @@
 
 #include "contiki.h"
 #include "net/routing/routing.h"
+#include "net/routing/rpl-classic/rpl.h"
 #include "random.h"
 #include "net/netstack.h"
 #include "net/ipv6/simple-udp.h"
@@ -27,29 +28,35 @@
 static struct simple_udp_connection udp_conn;
 static clock_time_t send_interval = DEFAULT_SEND_INTERVAL;
 static unsigned seq_num = 0;
-static uip_ipaddr_t last_root;
-static int has_last_root = 0;
+static uip_ipaddr_t last_parent;
+static int has_last_parent = 0;
 
 PROCESS(iot_node_process, "IoT Node Digital Twin");
 AUTOSTART_PROCESSES(&iot_node_process);
 
 /*
  * Contiki-NG no avisa con un evento cuando cambia el padre RPL, asi que
- * lo comprobamos a mano en cada paso del bucle: nos guardamos la ultima
- * IP del root que vimos y comparamos.
+ * lo comprobamos a mano en cada paso del bucle. Ojo: get_root_ipaddr()
+ * da la IP del root, que es siempre la misma aunque cambiemos de padre
+ * intermedio en una red multi-salto - por eso usamos el padre preferido
+ * de verdad (dag->preferred_parent), no el root.
  */
 static void
 check_parent_change(void)
 {
-  uip_ipaddr_t root_addr;
-  if(!NETSTACK_ROUTING.get_root_ipaddr(&root_addr)) return;
+  rpl_dag_t *dag = rpl_get_any_dag();
+  uip_ipaddr_t *parent_addr;
 
-  if(!has_last_root || !uip_ipaddr_cmp(&root_addr, &last_root)) {
+  if(dag == NULL || dag->preferred_parent == NULL) return;
+  parent_addr = rpl_parent_get_ipaddr(dag->preferred_parent);
+  if(parent_addr == NULL) return;
+
+  if(!has_last_parent || !uip_ipaddr_cmp(parent_addr, &last_parent)) {
     LOG_INFO("PARENT_CHANGE:");
-    LOG_INFO_6ADDR(&root_addr);
+    LOG_INFO_6ADDR(parent_addr);
     LOG_INFO_("\n");
-    uip_ipaddr_copy(&last_root, &root_addr);
-    has_last_root = 1;
+    uip_ipaddr_copy(&last_parent, parent_addr);
+    has_last_parent = 1;
   }
 }
 

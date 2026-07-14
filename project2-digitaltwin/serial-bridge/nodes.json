@@ -1,12 +1,31 @@
 {
     "mqttBroker": "mqtt://localhost:1883",
     "udpCommandPort": 5678,
-
     "_comment_nodes": "serialHost/serialPort son los del plugin 'Serial Socket (SERVER)' de Cooja para ese mote (Tools -> Serial Socket (SERVER), uno por mote). ipv6 es la direccion real del mote dentro de la red simulada (solo hace falta si vais a probar el cambio de periodo, y requiere que vuestro border router tenga tunslip6 conectado al host). El timeout de heartbeat (cuando se considera un nodo crasheado) ya no vive aqui, se calcula en el flujo de Node-RED.",
     "nodes": [
-        { "nodeId": "1", "serialHost": "localhost", "serialPort": 60001, "ipv6": "fd00::201:1:1:1" },
-        { "nodeId": "2", "serialHost": "localhost", "serialPort": 60002, "ipv6": "fd00::202:2:2:2" },
-        { "nodeId": "3", "serialHost": "localhost", "serialPort": 60003, "ipv6": "fd00::203:3:3:3" },
-        { "nodeId": "4", "serialHost": "localhost", "serialPort": 60004, "ipv6": "fd00::204:4:4:4" }
+        {
+            "nodeId": "1",
+            "serialHost": "localhost",
+            "serialPort": 60002,
+            "ipv6": "fd00::201:1:1:1"
+        },
+        {
+            "nodeId": "2",
+            "serialHost": "localhost",
+            "serialPort": 60003,
+            "ipv6": "fd00::202:2:2:2"
+        },
+        {
+            "nodeId": "3",
+            "serialHost": "localhost",
+            "serialPort": 60004,
+            "ipv6": "fd00::203:3:3:3"
+        },
+        {
+            "nodeId": "4",
+            "serialHost": "localhost",
+            "serialPort": 60005,
+            "ipv6": "fd00::204:4:4:4"
+        }
     ]
 }

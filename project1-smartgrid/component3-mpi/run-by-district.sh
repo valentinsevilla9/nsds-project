@@ -32,6 +32,7 @@ for ((i = 0; i < NUM_DISTRICTS; i++)); do
     HOSTS="$HOSTS${HOST_LIST[$((i % ${#HOST_LIST[@]}))]}:${NODES_PER_DISTRICT},"
 done
 HOSTS="${HOSTS%,}"
+NP=$((NODES_PER_DISTRICT * NUM_DISTRICTS))
 
 echo "Strategy: by-district | hosts=$HOSTS | np=$NP"
 mpirun -H "$HOSTS" -np "$NP" --oversubscribe ./district_simulation "$NODES_PER_DISTRICT" "$SIM_STEPS"
