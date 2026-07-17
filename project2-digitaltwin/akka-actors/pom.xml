@@ -21,6 +21,13 @@
             <artifactId>akka-actor_${scala.binary.version}</artifactId>
             <version>${akka.version}</version>
         </dependency>
+        <!-- akka-remote: necesario para que los actores de dos JVMs distintas
+             (en dos portatiles distintos) puedan mandarse mensajes entre si -->
+        <dependency>
+            <groupId>com.typesafe.akka</groupId>
+            <artifactId>akka-remote_${scala.binary.version}</artifactId>
+            <version>${akka.version}</version>
+        </dependency>
         <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
